@@ -16,11 +16,13 @@ import { tx } from "../../lib/locale";
 import { site } from "../../lib/site";
 
 /*
- * Allowed to block — same reason as the rest of /account. Nothing here is
- * cacheable or indexed: the page is one person's own form, and a visitor
- * about to be redirected should not watch it paint first.
+ * Do not serve this page from the client router cache on regular
+ * navigations: after "Save profile" redirects to /u/<name>?saved=1, coming
+ * back via "Edit profile" must show the just-saved values, not the
+ * 120-second-old ones (staleTimes.dynamic). Back/forward restores may still
+ * replay the browser's bfcache copy by design.
  */
-export const instant = false;
+export const unstable_dynamicStaleTime = 0;
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await currentLocale();
@@ -52,6 +54,13 @@ export default async function EditProfilePage({
   ]);
   const ossStatus = typeof query.oss === "string" ? query.oss : "";
   const handle = githubHandle(viewer.github);
+  // ProfileForm freezes the values it mounts with (useActionState initial
+  // state), so it carries a key: returning here with newer data from the
+  // server must remount it, or the inputs keep what they first rendered.
+  // GitHubForm saves in place without navigating, so a key would remount it
+  // on save and wipe its "Tersimpan." confirmation.
+  const githubValue = handle ? `https://github.com/${handle}` : viewer.github;
+  const editable = toEditable(viewer);
 
   return (
     <>
@@ -68,7 +77,7 @@ export default async function EditProfilePage({
         {/* First, because the directory is built from it: the badge faces,
             the evidence links and the Activity page all read this account.
             A form of its own, since the open source record below is one too. */}
-        <GitHubForm github={handle ? `https://github.com/${handle}` : viewer.github} shown={viewer.githubActivityShown} />
+        <GitHubForm github={githubValue} shown={viewer.githubActivityShown} />
 
         {/* Second: every repo listed here becomes a badge on that repo's row. */}
         <section id="open-source" className="oss-editor tone-done" aria-labelledby="oss-editor-title">
@@ -97,7 +106,8 @@ export default async function EditProfilePage({
         </section>
 
         <ProfileForm
-          profile={toEditable(viewer)}
+          key={JSON.stringify(editable)}
+          profile={editable}
           skillSuggestions={termSuggestions(people.value, "skills")}
           returnTo={returnTo}
         />

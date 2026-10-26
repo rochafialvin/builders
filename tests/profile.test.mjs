@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 import { PROFILE_MAXIMUM, validateGitHub, validateProfile } from "../app/lib/profile.ts";
 
@@ -60,4 +61,15 @@ test("GitHub takes a username or a profile link, and is stored as the link", () 
   for (const value of ["https://gitlab.com/zikrulihsan", "https://github.com/zikrulihsan/builders", "bukan username!", "javascript:alert(1)"]) {
     assert.ok("error" in validateGitHub(value), value);
   }
+});
+
+test("the profile editor never replays from the client router cache", async () => {
+  const page = await readFile(new URL("../app/account/profile/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /export const unstable_dynamicStaleTime = 0;/);
+});
+
+test("the profile editor remounts when the server sends newer values", async () => {
+  const page = await readFile(new URL("../app/account/profile/page.tsx", import.meta.url), "utf8");
+  assert.ok(page.includes("key={JSON.stringify(editable)}"), "ProfileForm needs a key derived from the editable profile");
+  // GitHubForm gets no key: it saves in place, and a remount would drop its saved-confirmation.
 });
