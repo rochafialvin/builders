@@ -863,6 +863,113 @@ select checks.act_as('11111111-1111-4111-8111-111111111111');
 delete from public.oss_repos where repo = 'acme/direct';
 select checks.equal((select count(*)::int from public.oss_repos where repo = 'acme/direct'), 0, 'admin menghapus repo');
 
+-- -------------------------------------------------- reactions on the feed --
+-- 20261101000000: a reaction may sit on a product's day (event:<id>) when the
+-- feed can show that day, and only then. The three key kinds share one
+-- column, so each rule is pinned to the database here.
+
+reset role;
+
+-- Dina already hid her comment_posted above; hiding her update too gives a
+-- feed-kind event (update_posted) that only she can see.
+update public.profiles set activity_hidden = array['comment_posted', 'update_posted']
+where id = '22222222-2222-4222-8222-222222222222';
+
+-- A reaction on her hidden update, seeded the way history would leave it: the
+-- row exists, but only the visible half of it is readable.
+insert into public.activity_reactions (pull_request_url, user_id, emoji)
+values ('event:' || (select e.id::text from public.events e
+                     where e.kind = 'update_posted' order by e.id limit 1),
+        '11111111-1111-4111-8111-111111111111', 'tada');
+
+-- The id of the hidden feed event, captured while the trail is still
+-- readable: under RLS the reactor cannot resolve it, and the two checks
+-- below must not lean on that accident.
+create temp table checks_hidden_feed_event (url text not null);
+insert into checks_hidden_feed_event
+select 'event:' || e.id::text from public.events e
+where e.kind = 'update_posted' order by e.id limit 1;
+grant select on checks_hidden_feed_event to anon, authenticated;
+
+select checks.act_as('22222222-2222-4222-8222-222222222222');
+
+select checks.allowed($$
+  insert into public.activity_reactions (pull_request_url, user_id, emoji)
+  values ('event:' || (select e.id::text from public.events e
+                       where e.kind = 'project_created'
+                         and e.actor_id = '11111111-1111-4111-8111-111111111111'
+                       order by e.id limit 1),
+          '22222222-2222-4222-8222-222222222222', 'heart')
+$$, 'bereaksi pada hari produk di feed');
+
+select checks.denied($$
+  insert into public.activity_reactions (pull_request_url, user_id, emoji)
+  values ('event:' || (select e.id::text from public.events e
+                       where e.kind = 'project_created'
+                         and e.actor_id = '11111111-1111-4111-8111-111111111111'
+                       order by e.id limit 1),
+          '11111111-1111-4111-8111-111111111111', 'rocket')
+$$, 'bereaksi atas nama orang lain');
+
+select checks.denied($$
+  insert into public.activity_reactions (pull_request_url, user_id, emoji)
+  values ('event:999999999', '22222222-2222-4222-8222-222222222222', 'tada')
+$$, 'bereaksi pada hari yang tidak ada');
+
+-- The feed kinds are project_created, project_stage_changed, update_posted,
+-- seat_opened, seat_filled; task_created is not one of them.
+select checks.act_as('33333333-3333-4333-8333-333333333333');
+
+select checks.denied($$
+  insert into public.activity_reactions (pull_request_url, user_id, emoji)
+  values ('event:' || (select e.id::text from public.events e
+                       where e.kind = 'task_created' order by e.id limit 1),
+          '33333333-3333-4333-8333-333333333333', 'fire')
+$$, 'bereaksi pada jenis yang tidak ditampilkan feed');
+
+-- An event its actor hid is out of sight for everybody else, so a reaction on
+-- it is refused — and the seeded row above is not readable either.
+select checks.denied($$
+  insert into public.activity_reactions (pull_request_url, user_id, emoji)
+  select url, '33333333-3333-4333-8333-333333333333', 'clap' from checks_hidden_feed_event
+$$, 'bereaksi pada jejak yang disembunyikan pemiliknya');
+
+select checks.act_as_guest();
+select checks.equal(
+  (select count(*)::int from public.activity_reactions
+   where pull_request_url = 'event:' || (select e.id::text from public.events e
+       where e.kind = 'project_created'
+         and e.actor_id = '11111111-1111-4111-8111-111111111111'
+       order by e.id limit 1)),
+  1, 'reaksi pada hari yang terlihat ikut terbaca tamu');
+select checks.equal(
+  (select count(*)::int from public.activity_reactions a
+   where a.pull_request_url = (select url from checks_hidden_feed_event)),
+  0, 'reaksi pada jejak tersembunyi tidak terbaca');
+select checks.denied($$
+  insert into public.activity_reactions (pull_request_url, user_id, emoji)
+  values ('event:1', '44444444-4444-4444-8444-444444444444', 'tada')
+$$, 'tamu bereaksi');
+
+-- The notice goes to whoever did the thing reacted to, once, and says whose
+-- product news it was.
+select checks.act_as('11111111-1111-4111-8111-111111111111');
+select checks.equal(
+  (select (n.payload ->> 'target') || ':' || (n.payload ->> 'title')
+   from public.notices n
+   where n.kind = 'pull_request_reacted'
+     and n.payload ->> 'url' = 'event:' || (select e.id::text from public.events e
+         where e.kind = 'project_created'
+           and e.actor_id = '11111111-1111-4111-8111-111111111111'
+         order by e.id limit 1)),
+  'event:Kelas Sore', 'pemilik produk dikabari reaksinya');
+select checks.equal(
+  (select count(*)::int from public.notices n
+   where n.kind = 'pull_request_reacted'
+     and n.recipient_id = '11111111-1111-4111-8111-111111111111'
+     and n.payload ->> 'actor_id' = '22222222-2222-4222-8222-222222222222'),
+  1, 'satu kabar per orang per hari');
+
 reset role;
 select checks.equal((select count(*)::int from public.feedback), 0, 'tidak ada masukan yang masuk ke tabel');
 select checks.equal((select count(*)::int from pg_proc where proname = 'submit_feedback' and pronamespace = 'public'::regnamespace), 0,
