@@ -270,13 +270,20 @@ The policies have their own suite, which needs a scratch PostgreSQL 16:
 ```bash
 createdb builders_test
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f supabase/local/auth-shim.sql
-for f in supabase/migrations/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+for f in supabase/migrations/*.sql; do
+  echo "== $f"
+  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f" || exit 1
+done
 psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f supabase/tests/policies.sql
 ```
 
 `supabase/local/auth-shim.sql` is the smallest slice of Supabase's `auth` schema
 the migrations touch, so a plain PostgreSQL can run them. It is for development
 only — never run it against a hosted project.
+
+CI runs these same steps against a `postgres:16` service
+(`.github/workflows/ci.yml`); the `pg_cron`/`pg_net` setup is guarded and
+skipped on a plain PostgreSQL, so the run needs no Supabase extensions.
 
 ## Deployment
 
