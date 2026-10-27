@@ -11,4 +11,10 @@
 -- never share the token's limit in the same minute. Scheduling under an
 -- existing name replaces that job.
 
-select cron.schedule('refresh-github-activity', '7,37 * * * *', $$ select private.request_github_activity_refresh(null) $$);
+do $guard$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('refresh-github-activity', '7,37 * * * *', $$ select private.request_github_activity_refresh(null) $$);
+  end if;
+end
+$guard$;

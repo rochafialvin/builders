@@ -64,7 +64,10 @@ The app works in read-only seed mode without Supabase credentials. See the main
 ## Database changes
 
 - Do not rewrite a migration that may already have been applied. Add the next
-  numbered file under `supabase/migrations/`.
+  numbered file under `supabase/migrations/`. The one exception already in
+  place: wrapping a pg_cron/pg_net statement in an availability guard changes
+  nothing where the extension exists, so those guards are added in place
+  rather than as a new file.
 - Treat row-level security changes as security-sensitive. Add cases to
   `supabase/tests/policies.sql` for allowed and denied operations.
 - Test migrations against a scratch PostgreSQL database using the commands in
