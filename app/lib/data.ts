@@ -1126,8 +1126,9 @@ async function queryPersonActivity(
  * chose to hide, and cached for everybody: any event by anybody bumps
  * `tags.activity` through trailChanged() in actions.ts. Actors' names come
  * from the cached people list rather than a join, as the catalogue does.
+ * The view pages it in the browser; 1,000 is PostgREST's cap on one read.
  */
-export async function listProductFeed(limit = 300): Promise<ActivityEvent[]> {
+export async function listProductFeed(limit = 1000): Promise<ActivityEvent[]> {
   "use cache";
   cacheLife("board");
   cacheTag(tags.activity, tags.people);
