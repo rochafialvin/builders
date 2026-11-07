@@ -79,6 +79,20 @@ test("a kind filter narrows a day's lines and drops days without it, keeping the
   assert.equal(groupProductFeed(day, "Asia/Jakarta", "seat_filled").length, 0, "a day without the kind drops");
 });
 
+test("a filtered card is timed and ordered by the lines it shows", () => {
+  const feed = groupProductFeed(
+    [
+      event(10, { kind: "project_stage_changed", createdAt: "2026-10-25T09:00:00Z" }),
+      event(7),
+      event(5, { projectSlug: "teh", projectTitle: "Teh", createdAt: "2026-10-25T05:00:00Z" }),
+    ],
+    "Asia/Jakarta",
+    "update_posted",
+  );
+  assert.deepEqual(feed.map((entry) => entry.product.slug), ["teh", "kopi"]);
+  assert.equal(feed[1].at, "2026-10-25T03:00:00Z");
+});
+
 test("paging is per card, and a page past the end lands on the last one", () => {
   const entries = groupProductFeed([
     event(3, { projectSlug: "susu", projectTitle: "Susu" }),

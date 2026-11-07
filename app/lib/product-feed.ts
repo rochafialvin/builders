@@ -78,10 +78,12 @@ export function groupProductFeed(events: FeedEvent[], timeZone = "Asia/Jakarta",
   const days = [...byKey.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
   if (feed === "") return days;
   // A filtered entry keeps its day's key, so reactions stay where they were
-  // left; only its lines narrow.
+  // left; its lines narrow, and its time is its newest shown line's.
   return days
     .map((day) => ({ ...day, events: day.events.filter((event) => event.kind === feed) }))
-    .filter((day) => day.events.length > 0);
+    .filter((day) => day.events.length > 0)
+    .map((day) => ({ ...day, at: day.events[0].createdAt }))
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
 
 /** The timeline's days, newest first, as the PR feed groups them. */
