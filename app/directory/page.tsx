@@ -1,4 +1,3 @@
-import Image from "next/image";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "@/app/components/responsive-link";
@@ -7,14 +6,8 @@ import { SiteFooter, SiteHeader } from "../components/shell";
 import { Skeleton } from "../components/skeleton";
 import { DirectoryView } from "../components/directory-view";
 import { ActivityBanner } from "../components/activity-banner";
-import { listAdminPicks, listOssMembers, listProjects, listRepoSignals } from "../lib/data";
-import { readPublicly } from "../lib/public-read";
-import { projectBlurb } from "../lib/brief";
-import { productEntries, repoEntry, type DirectoryEntry } from "../lib/directory";
 import { pathFor, readFilters } from "../lib/directory-url";
-import { listOpenSourceRepos, signalsFor } from "../lib/open-source-live";
-import { parseGitHubRepositoryUrl } from "../lib/github";
-import { roleLabel } from "../lib/roles";
+import { readDirectory } from "../lib/directory-read";
 import { currentLocale } from "../lib/locale-server";
 import { currentViewer } from "../lib/session";
 import { tx, type Locale } from "../lib/locale";
@@ -23,13 +16,13 @@ import { isOss, site } from "../lib/site";
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await currentLocale();
   const title = isOss
-    ? tx(locale, `Repo pilihan — ${site.name}`, `Picked repos — ${site.name}`)
+    ? tx(locale, `Direktori — ${site.name}`, `Directory — ${site.name}`)
     : tx(locale, "Direktori produk — Builders", "Product directory — Builders");
   const description = isOss
     ? tx(
         locale,
-        "Repo open source yang menurut komunitas swegrowth bagus buat mulai kontribusi—bukan daftar lengkap. Pilih satu, kirim PR, biar kelihatan.",
-        "Open source repos the swegrowth community thinks are good places to start contributing—not a complete list. Pick one, send a PR, let it be seen.",
+        "Repo open source rekomendasi dan kurasi komunitas swegrowth, yang bagus buat mulai kontribusi. Pilih satu, kirim PR, biar kelihatan.",
+        "Open source repos recommended and curated by the swegrowth community, good places to start contributing. Pick one, send a PR, let it be seen.",
       )
     : tx(
         locale,
@@ -64,14 +57,14 @@ export default async function Directory({ searchParams }: { searchParams?: Searc
 
         <header className="dx-head">
           <div>
-            <h1>{isOss ? tx(locale, "Repo pilihan", "Picked repos") : tx(locale, "Direktori produk", "Product directory")}</h1>
+            <h1>{isOss ? tx(locale, "Direktori", "Directory") : tx(locale, "Direktori produk", "Product directory")}</h1>
             <p className="dx-head-community">
               {/* What the place is for, in one line, for somebody who has just landed. */}
               {isOss
                 ? tx(
                     locale,
-                    "Repo yang menurut kami bagus buat mulai kontribusi—bukan daftar lengkap. Butuh lebih banyak pilihan? ",
-                    "Repos we think are good places to start contributing—not a complete list. Want more to choose from? ",
+                    "Repo open source kurasi komunitas, dari proyek member sampai repo global. Cari lebih banyak? Cek ",
+                    "Open source repos curated by the community, from members' projects to global repos. Want more? See ",
                   )
                 : null}
               {isOss ? (
@@ -87,15 +80,24 @@ export default async function Directory({ searchParams }: { searchParams?: Searc
               )}
             </p>
             <div className="dx-head-actions">
-              <Suspense fallback={<WaButton />}>
-                <JoinCta locale={locale} />
-              </Suspense>
-              <p className="dx-head-powered">
-                Powered by
-                <a href="https://swegrowth.id/" target="_blank" rel="noopener noreferrer">
-                  <Image src="/swegrowth-logo.png" alt="Software Engineer Growth Community" width={25} height={24} />
-                </a>
-              </p>
+              {/* The open source directory asks for repos, the same for anyone,
+                  so it renders with the page instead of waiting on who is
+                  looking; joining is the landing page's ask, a quiet link here.
+                  Builders' ask depends on the visitor and streams in. */}
+              {isOss ? (
+                <>
+                  <Link className="primary-action" href="/recommend">
+                    <span aria-hidden="true">+</span> {tx(locale, "Usulkan repo", "Suggest a repo")}
+                  </Link>
+                  <Link className="dx-wa-link" href="/community">
+                    {tx(locale, "atau kenalan dengan komunitas", "or meet the community")}
+                  </Link>
+                </>
+              ) : (
+                <Suspense fallback={<WaButton />}>
+                  <JoinCta locale={locale} />
+                </Suspense>
+              )}
             </div>
           </div>
           <Suspense fallback={null}>
@@ -111,59 +113,6 @@ export default async function Directory({ searchParams }: { searchParams?: Searc
       <SiteFooter />
     </>
   );
-}
-
-/**
- * Everything listed, both tracks. Every read underneath is cached, so the
- * heading's numbers and the list share one trip to the database.
- */
-async function readDirectory(locale: Locale) {
-  // GitHub's facts come from the database, read once and shared by catalogue
-  // repos and products; nothing on this page calls GitHub.
-  // Only the catalogue waits for the signals; the products and the members'
-  // records start at the same time, rather than queueing behind them.
-  const signalsRead = readPublicly("repository signals in the directory", () => listRepoSignals(), {});
-  const [reposResult, projectsResult, membersResult, signalsResult, picksResult] = await Promise.all([
-    signalsRead.then(({ value }) =>
-      readPublicly("open source repos in the directory", () => listOpenSourceRepos(value), []),
-    ),
-    readPublicly("products in the directory", () => listProjects({ lane: "active" }), []),
-    readPublicly("members' open source records in the directory", () => listOssMembers(), []),
-    signalsRead,
-    readPublicly("admin picks in the directory", () => listAdminPicks(), { repoIds: [], projectIds: [] }),
-  ]);
-  const pickedRepos = new Set(picksResult.value.repoIds);
-  const pickedProjects = new Set(picksResult.value.projectIds);
-  const signals = signalsResult.value;
-
-  const repos = reposResult.value.map((repo) => ({ ...repo, adminPick: pickedRepos.has(repo.id) }));
-  const members = membersResult.value;
-  const products = projectsResult.value.map((project) => {
-    const repository = parseGitHubRepositoryUrl(project.repoUrl);
-    const found = repository ? signalsFor(signals, repository.owner, repository.repo) : null;
-    return {
-      ...project,
-      repoStats: found?.stats ?? null,
-      repoActivity: found?.activity ?? null,
-      adminPick: pickedProjects.has(project.id),
-    };
-  });
-  const roleName = (role: string) => roleLabel(role, "", locale);
-  const entries: DirectoryEntry[] = isOss
-    ? [
-        ...repos.filter((repo) => repo.list === "internal").map((repo) => repoEntry(repo, locale, members)),
-        ...repos.filter((repo) => repo.list === "recommended").map((repo) => repoEntry(repo, locale, members)),
-        // The open source site keeps members' products that take PRs — their
-        // card is the repository — and leaves the role path to the builders site.
-        ...products.flatMap((project) => productEntries(project, projectBlurb, roleName, locale)),
-      ].filter((entry) => entry.track === "github")
-    : // The builders site is a directory of products, every active one, with
-      // nothing of GitHub's: no repos, and no repository link on a card.
-      products
-        .flatMap((project) => productEntries(project, projectBlurb, roleName, locale, { everyProduct: true }))
-        .filter((entry) => entry.track === "role")
-        .map((entry) => ({ ...entry, links: entry.links.filter((link) => link.kind !== "github") }));
-  return { entries, members, unavailable: reposResult.unavailable || projectsResult.unavailable };
 }
 
 /**

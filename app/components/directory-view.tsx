@@ -21,6 +21,7 @@ import {
   paginate,
   prTierCounts,
   prTierLabel,
+  repoPagePath,
   sortLabel,
   sortsFor,
   scopeCounts,
@@ -29,6 +30,7 @@ import {
   type DirectoryEntry,
   type DirectoryFilters,
   type DirectoryTrack,
+  type PRTier,
   type SharedBy,
 } from "../lib/directory";
 import { badgeKindLabel, badgeLabel, badgePeople, type Badge, type BadgeKind } from "../lib/badges";
@@ -562,7 +564,7 @@ export function FacetLink({
  * members' own records, their GitHub otherwise. With several, it opens a list
  * of them all, so nobody stands in for the rest.
  */
-function BadgeChip({ badge, locale }: { badge: Badge; locale: Locale }) {
+export function BadgeChip({ badge, locale }: { badge: Badge; locale: Locale }) {
   const people = badgePeople(badge);
   const label = badgeLabel(badge, locale);
   const title = people.length > 0 ? `${label}: ${people.map((person) => `@${person}`).join(", ")}` : label;
@@ -641,7 +643,7 @@ function BadgeFace({ person }: { person: string }) {
   return <img src={`https://github.com/${person}.png?size=40`} alt="" width={18} height={18} loading="lazy" />;
 }
 
-function BadgeIcon({ kind }: { kind: BadgeKind }) {
+export function BadgeIcon({ kind }: { kind: BadgeKind }) {
   if (kind === "admin-pick") {
     return (
       <svg className="dx-badge-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -672,7 +674,20 @@ function BadgeIcon({ kind }: { kind: BadgeKind }) {
   );
 }
 
-function LanguageDot({ language }: { language: string }) {
+/** Where a repository stands on pull requests, as a pill beside its name. */
+export function PrTierPill({ tier, locale }: { tier: PRTier; locale: Locale }) {
+  return (
+    <span className={`dx-prs dx-prs-${tier}`}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" />
+        <path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2.5L10.5 6 13 8.5" />
+      </svg>
+      {prTierLabel(tier, locale)}
+    </span>
+  );
+}
+
+export function LanguageDot({ language }: { language: string }) {
   return <span className="dx-lang-dot" style={{ background: LANGUAGE_COLOURS[language] ?? "#a1a1aa" }} aria-hidden="true" />;
 }
 
@@ -689,7 +704,7 @@ function TrackIcon({ track }: { track: DirectoryTrack }) {
 }
 
 /** Who put a catalogue repo forward, credited the way they stand to it. */
-function SharedByLine({ sharedBy, locale }: { sharedBy: SharedBy; locale: Locale }) {
+export function SharedByLine({ sharedBy, locale }: { sharedBy: SharedBy; locale: Locale }) {
   const name = <Link href={`/u/${sharedBy.username}`}>{sharedBy.name || sharedBy.username}</Link>;
   // The owner and maintainers share their own work; anybody else recommends it.
   // The name leads, as people know each other by it; their part comes after.
@@ -737,7 +752,12 @@ function DirectoryRow({ entry, locale, now }: { entry: DirectoryEntry; locale: L
         />
         <div className="dx-main-copy">
           <p className="dx-name">
-            {entry.href.startsWith("http") ? (
+            {/* A listed repo's name opens its page here, which can be shared
+                and says who from the community has been there; GitHub is one
+                click on from it, and the Star at the row's end goes there now. */}
+            {code && entry.repo ? (
+              <Link href={repoPagePath(entry.repo)}>{title}</Link>
+            ) : entry.href.startsWith("http") ? (
               <a href={entry.href} {...external}>{title}</a>
             ) : (
               <Link href={entry.href}>{title}</Link>
@@ -753,15 +773,7 @@ function DirectoryRow({ entry, locale, now }: { entry: DirectoryEntry; locale: L
             {/* The PR status belongs to the code path. A product asking for
                 both simply appears on both tabs; neither card points at the
                 other. */}
-            {code && entry.prTier ? (
-              <span className={`dx-prs dx-prs-${entry.prTier}`}>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" />
-                  <path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2.5L10.5 6 13 8.5" />
-                </svg>
-                {prTierLabel(entry.prTier, locale)}
-              </span>
-            ) : null}
+            {code && entry.prTier ? <PrTierPill tier={entry.prTier} locale={locale} /> : null}
             {code ? null : <span className="dx-owner">{owner}</span>}
             {now !== null && isNew(entry, now) ? <span className="dx-new">{tx(locale, "Baru", "New")}</span> : null}
           </p>

@@ -13,6 +13,8 @@ import { HeaderMenu } from "./header-menu";
 import { ThemeToggle } from "./theme-toggle";
 import { SignOutButton } from "./sign-out-button";
 import { Skeleton } from "./skeleton";
+import { HeaderIcon, type HeaderIconName } from "./header-icon";
+import { BottomNav } from "./bottom-nav";
 import { currentLocale } from "../lib/locale-server";
 import { tx, type Locale } from "../lib/locale";
 import { isOss, site } from "../lib/site";
@@ -27,7 +29,7 @@ function addLabel(locale: Locale): string {
 }
 
 /** Which top-level section the current page belongs to. */
-export type Section = "directory" | "recommend" | "admin" | "activity" | "how" | "about" | "community" | "feedback" | "";
+export type Section = "directory" | "leaderboard" | "recommend" | "admin" | "activity" | "how" | "about" | "community" | "feedback" | "";
 
 export function Arrow({ diagonal = false }: { diagonal?: boolean }) {
   return (
@@ -57,10 +59,13 @@ type NavLink = { href: string; label: string; labelId: string; key: Section; ico
  * in the menu, and on a phone the bottom bar. The directory comes second, as
  * what it is: on the open source site, repos we think are good places to
  * start, not a complete catalogue. Adding to it is the header's one button.
+ * The open source site's leaderboard sits between them: the home page shows
+ * its first rows, and the whole season is one tap away.
  */
 const PRIMARY_LINKS: NavLink[] = [
   { href: "/", label: "Activity", labelId: "Aktivitas", key: "activity", icon: isOss ? "pull-request" : "pulse" },
-  { href: "/directory", label: isOss ? "Picked repos" : "Directory", labelId: isOss ? "Repo pilihan" : "Direktori", key: "directory", icon: "directory" },
+  ...(isOss ? [{ href: "/leaderboard", label: "Leaderboard", labelId: "Leaderboard", key: "leaderboard", icon: "trophy" } satisfies NavLink] : []),
+  { href: "/directory", label: "Directory", labelId: "Direktori", key: "directory", icon: "directory" },
 ];
 
 /* The pages that answer for the site — how it works, what this is, and where to say it is broken. */
@@ -76,42 +81,6 @@ const SECONDARY_LINKS: NavLink[] = [
  */
 const COMMUNITY_LINK: NavLink = { href: "/community", label: "Community", labelId: "Komunitas", key: "community", icon: "community" };
 
-type HeaderIconName =
-  | "directory"
-  | "pull-request"
-  | "pulse"
-  | "about"
-  | "feedback"
-  | "community"
-  | "profile"
-  | "edit"
-  | "steps"
-  | "inbox"
-  | "add"
-  | "language"
-  | "signout"
-  | "signin";
-
-function HeaderIcon({ name }: { name: HeaderIconName }) {
-  const paths: Record<HeaderIconName, React.ReactNode> = {
-    directory: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
-    "pull-request": <><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V10a3 3 0 0 0-3-3h-4M13 4.5 10.5 7 13 9.5" /></>,
-    pulse: <path d="M3 12h4l2.5-6 5 12 2.5-6h4" />,
-    about: <><circle cx="12" cy="12" r="9" /><path d="M12 11.5v5M12 7.8h.01" /></>,
-    feedback: <><path d="M4 5h16v11H10l-4 4v-4H4z" /><path d="M8 9h8M8 12.5h5" /></>,
-    community: <><circle cx="9" cy="8.5" r="3" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><circle cx="17" cy="9.5" r="2.4" /><path d="M16.5 14.6A4.5 4.5 0 0 1 21 19" /></>,
-    profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></>,
-    inbox: <><path d="M4 5h16v13H4z" /><path d="M4 14h4l1.5 2h5l1.5-2h4" /></>,
-    edit: <><path d="M4 20h4l10-10-4-4L4 16v4Z" /><path d="m14 6 4 4" /></>,
-    steps: <><path d="M4 7h5v13H4zM9.5 12h5v8h-5zM15 4h5v16h-5z" /></>,
-    add: <path d="M12 5v14M5 12h14" />,
-    language: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z" /></>,
-    signout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M9 12h9" /></>,
-    signin: <><path d="M14 5h5v14h-5M10 8l-4 4 4 4M6 12h9" /></>,
-  };
-
-  return <svg className="menu-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
-}
 
 function MainNav({ active, locale }: { active: Section; locale: Locale }) {
   return (
@@ -120,7 +89,7 @@ function MainNav({ active, locale }: { active: Section; locale: Locale }) {
         <Link
           key={link.href}
           aria-current={active === link.key ? "page" : undefined}
-          className={active === link.key ? "is-active" : ""}
+          className={[active === link.key ? "is-active" : "", SECONDARY_LINKS.includes(link) ? "nav-secondary" : ""].filter(Boolean).join(" ")}
           href={link.href}
         >
           {tx(locale, link.labelId, link.label)}
@@ -131,63 +100,41 @@ function MainNav({ active, locale }: { active: Section; locale: Locale }) {
 }
 
 /**
- * The phone's bottom bar: the two places, then the visitor's own — their
- * profile, or the way in. `viewer` is undefined while the visitor is still
- * being worked out, and the third place waits as a placeholder rather than
- * flash the wrong one.
+ * The phone's bottom bar, rendered once in the root layout rather than in
+ * each page's header: it stays put while a page loads, so it neither blinks
+ * through the loading skeleton nor loses its third tab on every navigation.
+ * The visitor streams in once; until then the third place is a placeholder.
  */
-function BottomNav({
-  active,
-  viewer,
-  returnTo = "/",
-  locale,
-}: {
-  active: Section;
-  viewer?: Viewer | null;
-  returnTo?: string;
-  locale: Locale;
-}) {
+export async function SiteBottomNav() {
+  const locale = await currentLocale();
   return (
-    <nav className="bottom-nav" aria-label={tx(locale, "Navigasi utama seluler", "Mobile primary navigation")}>
-      {PRIMARY_LINKS.map((link) => (
-        <Link
-          key={link.href}
-          aria-current={active === link.key ? "page" : undefined}
-          className={active === link.key ? "is-active" : ""}
-          href={link.href}
-        >
-          <HeaderIcon name={link.icon} />
-          <span>{tx(locale, link.labelId, link.label)}</span>
-        </Link>
-      ))}
-      {viewer === undefined ? (
-        <span className="bottom-nav-placeholder" aria-hidden="true">
-          <Skeleton height={20} width={20} round />
-          <Skeleton height={10} width={36} />
-        </span>
-      ) : viewer ? (
-        <Link
-          href={`/u/${viewer.username}`}
-          aria-current={onOwnProfile(viewer, returnTo) ? "page" : undefined}
-          className={onOwnProfile(viewer, returnTo) ? "is-active" : ""}
-        >
-          <HeaderIcon name="profile" />
-          <span>{tx(locale, "Profil", "Profile")}</span>
-        </Link>
-      ) : (
-        <Link href={signInPath(returnTo)}>
-          <HeaderIcon name="signin" />
-          <span>{tx(locale, "Masuk", "Sign in")}</span>
-        </Link>
-      )}
-    </nav>
+    <Suspense fallback={<BottomNav links={bottomLinks(locale)} account={undefined} label={bottomLabel(locale)} />}>
+      <ViewerBottomNav locale={locale} />
+    </Suspense>
   );
 }
 
-/** The viewer's own profile, or the page that edits it. */
-function onOwnProfile(viewer: Viewer, path: string): boolean {
-  const pathname = path.split(/[?#]/)[0];
-  return pathname === `/u/${viewer.username}` || pathname.startsWith("/account/profile");
+async function ViewerBottomNav({ locale }: { locale: Locale }) {
+  const viewer = await currentViewer();
+  return (
+    <BottomNav
+      links={bottomLinks(locale)}
+      label={bottomLabel(locale)}
+      account={
+        viewer
+          ? { kind: "profile", username: viewer.username, label: tx(locale, "Profil", "Profile") }
+          : { kind: "signin", label: tx(locale, "Masuk", "Sign in") }
+      }
+    />
+  );
+}
+
+function bottomLinks(locale: Locale) {
+  return PRIMARY_LINKS.map((link) => ({ href: link.href, label: tx(locale, link.labelId, link.label), icon: link.icon }));
+}
+
+function bottomLabel(locale: Locale): string {
+  return tx(locale, "Navigasi utama seluler", "Mobile primary navigation");
 }
 
 /**
@@ -234,7 +181,6 @@ export async function HeaderShell({ active = "" }: { active?: Section }) {
           </div>
         </div>
       </header>
-      <BottomNav active={active} locale={locale} />
     </>
   );
 }
@@ -302,8 +248,6 @@ async function VisitorHeader({
   const unseen = unseenResult.value;
   const waiting = incoming + unseen;
 
-  // The bottom bar sits beside the header, not in it: the header's backdrop
-  // blur would make it the containing block of anything fixed inside it.
   return (
     <>
       <header className="site-header">
@@ -344,7 +288,6 @@ async function VisitorHeader({
           </div>
         </div>
       </header>
-      <BottomNav active={active} viewer={viewer} returnTo={destination} locale={locale} />
     </>
   );
 }

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { resilientSupabaseFetch } from "./app/lib/resilient-fetch";
 import { sameOriginRedirect } from "./app/lib/redirect";
+import { crawlerTarget } from "./app/lib/crawlers";
 import { originFromHeaders, strayCodeTarget } from "./app/lib/urls";
 import { isLocale, LANGUAGE_COOKIE, LANGUAGE_PARAM } from "./app/lib/locale";
 import { authCookieOptions } from "./app/lib/site";
@@ -14,6 +15,11 @@ import { authCookieOptions } from "./app/lib/site";
  * people would get signed out mid-visit.
  */
 export async function proxy(request: NextRequest) {
+  // A crawler on a filtered list page gets the page without the filter, here,
+  // before the server is woken to render the same page again. See crawlers.ts.
+  const plain = crawlerTarget(request.nextUrl.pathname, request.nextUrl.search, request.headers.get("user-agent"));
+  if (plain) return sameOriginRedirect(plain, browserOrigin(request), 301);
+
   // An OAuth code that landed anywhere but /auth/callback. Supabase falls back
   // to the Site URL when a redirect target is not on its allow list, so a
   // missing entry there drops the code on the home page, where nothing spends

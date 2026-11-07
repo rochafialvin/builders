@@ -1,7 +1,9 @@
 import Link from "@/app/components/responsive-link";
 import { addOssContribution, removeOssContribution } from "../actions";
 import { SubmitButton } from "./submit-button";
+import { LanguageDot, PrTierPill } from "./directory-view";
 import { contributionEvidenceUrl, type OssContribution } from "../lib/oss";
+import { repoPagePath, type PRTier } from "../lib/directory";
 import { tx, type Locale } from "../lib/locale";
 
 /**
@@ -52,24 +54,37 @@ export function OssRecordList({
   records,
   handle,
   editable = false,
+  briefs = {},
   locale,
 }: {
   records: OssContribution[];
   /** The person's GitHub username; without it there is no evidence link. */
   handle: string;
   editable?: boolean;
+  /** Per repo, what it is: from its card in the directory, or else from GitHub. */
+  briefs?: Record<string, RepoBrief>;
   locale: Locale;
 }) {
   return (
     <ul className="oss-record">
       {records.map((record) => (
         <li key={record.repo}>
-          <span className="oss-record-mark" aria-hidden="true">{record.repo.split("/")[1]?.slice(0, 1).toUpperCase()}</span>
+          <RelationIcon relation={record.relation} />
           <div className="oss-record-copy">
-            <a href={`https://github.com/${record.repo}`} target="_blank" rel="noopener noreferrer">
-              <span className="oss-record-owner">{record.repo.split("/")[0]}/</span>
-              {record.repo.split("/")[1]}
-            </a>
+            {briefs[record.repo]?.listed ? (
+              <Link href={repoPagePath(record.repo)}>
+                <span className="oss-record-owner">{record.repo.split("/")[0]}/</span>
+                <wbr />
+                {record.repo.split("/")[1]}
+              </Link>
+            ) : (
+              <a href={`https://github.com/${record.repo}`} target="_blank" rel="noopener noreferrer">
+                <span className="oss-record-owner">{record.repo.split("/")[0]}/</span>
+                {/* When it has to wrap, the break goes after the slash, not inside the name. */}
+                <wbr />
+                {record.repo.split("/")[1]}
+              </a>
+            )}
             <span className={`oss-record-relation oss-record-${record.relation}`}>
               {record.relation === "maintainer" ? "Maintainer" : tx(locale, "Kontributor", "Contributor")}
             </span>
@@ -78,6 +93,7 @@ export function OssRecordList({
                 {tx(locale, "✓ PR merged", "✓ PR merged")}
               </span>
             ) : null}
+            <RepoDetail brief={briefs[record.repo]} locale={locale} />
           </div>
           {handle ? (
             <a className="oss-record-evidence" href={contributionEvidenceUrl(record.repo, handle)} target="_blank" rel="noopener noreferrer">
@@ -97,6 +113,57 @@ export function OssRecordList({
         </li>
       ))}
     </ul>
+  );
+}
+
+/** A repo for a maintainer, a merge for a contributor: in the colours of their pills. */
+function RelationIcon({ relation }: { relation: OssContribution["relation"] }) {
+  return (
+    <span className={`oss-record-icon oss-record-${relation}`} aria-hidden="true">
+      <svg viewBox="0 0 16 16">
+        {relation === "maintainer" ? (
+          <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1H13v11H4.5a1.5 1.5 0 0 0 0 3H13M3 2.5v11M6 4h4" />
+        ) : (
+          <>
+            <circle cx="4" cy="3.5" r="1.5" />
+            <circle cx="4" cy="12.5" r="1.5" />
+            <circle cx="12" cy="8" r="1.5" />
+            <path d="M4 5v6M4 5a5 5 0 0 0 6.5 3" />
+          </>
+        )}
+      </svg>
+    </span>
+  );
+}
+
+/** A repo in brief, for the record: what it is, whether it is in the directory, and its numbers. */
+export type RepoBrief = {
+  description: string;
+  /** Listed in the directory: the name opens its page here. */
+  listed: boolean;
+  prTier: PRTier | null;
+  language: string;
+  /** GitHub's colour for the language, when GitHub gave one. */
+  languageColor?: string;
+  stars: number;
+};
+
+function RepoDetail({ brief, locale }: { brief?: RepoBrief; locale: Locale }) {
+  if (!brief || (!brief.description && !brief.prTier && !brief.language && !brief.stars)) return null;
+  return (
+    <span className="oss-record-detail">
+      {brief.description ? <span className="oss-record-desc">{brief.description}</span> : null}
+      <span className="oss-record-meta">
+        {brief.prTier ? <PrTierPill tier={brief.prTier} locale={locale} /> : null}
+        {brief.language ? (
+          <span>
+            {brief.languageColor ? <span className="dx-lang-dot" style={{ background: brief.languageColor }} aria-hidden="true" /> : <LanguageDot language={brief.language} />}{" "}
+            {brief.language}
+          </span>
+        ) : null}
+        {brief.stars ? <span>★ {brief.stars >= 1000 ? `${(brief.stars / 1000).toFixed(1)}k` : brief.stars}</span> : null}
+      </span>
+    </span>
   );
 }
 

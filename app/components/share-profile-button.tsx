@@ -6,15 +6,22 @@ import { site } from "../lib/site";
 
 type ShareStatus = "idle" | "sharing" | "shared" | "copied" | "error";
 
+/**
+ * Shares a page through the device's share sheet, or copies its link where
+ * there is none. A profile by default; a repo's page says so in its words.
+ */
 export function ShareProfileButton({
   name,
   path,
+  subject = "profile",
 }: {
   name: string;
   path: string;
+  subject?: "profile" | "repo";
 }) {
   const [status, setStatus] = useState<ShareStatus>("idle");
   const { tx } = useLanguage();
+  const repo = subject === "repo";
   const resetTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -38,7 +45,9 @@ export function ShareProfileButton({
       try {
         await navigator.share({
           title: `${name} — ${site.name}`,
-          text: tx(`Lihat profil dan karya ${name} di ${site.name}.`, `View ${name}'s profile and work on ${site.name}.`),
+          text: repo
+            ? tx(`${name} lagi cari kontributor. Lihat siapa dari komunitas yang sudah kontribusi di ${site.name}.`, `${name} is looking for contributors. See who from the community has contributed, on ${site.name}.`)
+            : tx(`Lihat profil dan karya ${name} di ${site.name}.`, `View ${name}'s profile and work on ${site.name}.`),
           url,
         });
         showStatus("shared");
@@ -63,19 +72,19 @@ export function ShareProfileButton({
     status === "sharing"
       ? tx("Menyiapkan bagikan…", "Preparing share…")
       : status === "shared"
-        ? tx("Profil dibagikan", "Profile shared")
+        ? repo ? tx("Repo dibagikan", "Repo shared") : tx("Profil dibagikan", "Profile shared")
         : status === "copied"
       ? tx("Tautan disalin", "Link copied")
       : status === "error"
         ? tx("Tautan tidak dapat disalin", "Could not copy link")
-        : tx("Bagikan profil", "Share profile");
+        : repo ? tx("Bagikan repo", "Share repo") : tx("Bagikan profil", "Share profile");
 
   return (
     <div className="profile-share-control">
       <button
         aria-label={label}
         className="profile-share-button"
-        title={tx("Bagikan profil", "Share profile")}
+        title={repo ? tx("Bagikan repo", "Share repo") : tx("Bagikan profil", "Share profile")}
         type="button"
         onClick={share}
         disabled={status === "sharing"}
@@ -87,11 +96,11 @@ export function ShareProfileButton({
         {status === "sharing"
           ? tx("Menyiapkan opsi bagikan.", "Preparing sharing options.")
           : status === "shared"
-            ? tx("Profil dibagikan.", "Profile shared.")
+            ? repo ? tx("Repo dibagikan.", "Repo shared.") : tx("Profil dibagikan.", "Profile shared.")
             : status === "copied"
-          ? tx("Tautan profil disalin.", "Profile link copied.")
+          ? repo ? tx("Tautan repo disalin.", "Repo link copied.") : tx("Tautan profil disalin.", "Profile link copied.")
           : status === "error"
-            ? tx("Tautan profil tidak dapat disalin.", "Could not copy profile link.")
+            ? repo ? tx("Tautan repo tidak dapat disalin.", "Could not copy repo link.") : tx("Tautan profil tidak dapat disalin.", "Could not copy profile link.")
             : ""}
       </span>
     </div>

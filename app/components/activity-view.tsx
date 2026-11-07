@@ -3,43 +3,60 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "./responsive-link";
-import { FacetGroup, FacetLink } from "./directory-view";
-import { FilterPanel, type ActiveFilter } from "./filter-panel";
 import { InstantLink, InstantNav } from "./instant-link";
 import { RelativeTime } from "./relative-time";
 import { ReactionBar } from "./reaction-bar";
-import { activityPath, readActivityFilters, readActivityPage } from "../lib/activity-url";
-import { LEADERBOARD_NOTE_COOKIE, leaderboardIssueUrl } from "../content";
+import {
+  activityPath,
+  boardChoice,
+  leaderboardPath,
+  readActivityFilters,
+  readActivityPage,
+  type ActivityFilters,
+  type LeaderboardChoice,
+} from "../lib/activity-url";
 import {
   activityPeople,
-  activityRepos,
   dayKey,
   groupByDay,
   inScope,
-  kindCounts,
+  inWindow,
+  repoSummaries,
+  REPO_ORDERS,
   ownerAvatar,
   queryActivity,
   repoName,
-  scopeCounts,
-  ACTIVITY_SCOPES,
+  BOARD_COUNTS,
+  BOARD_SPANS,
+  boardEntries,
   SUMMARY_DAYS,
-  type ActivityScope,
+  boardWindow,
+  isBoardSpan,
+  isBoardCount,
+  seasonBoard,
+  type BoardCount,
+  type BoardSpan,
+  type BoardWindow,
+  type OwnBoards,
   type CommitSummaryEntry,
+  type ConsistencyRow,
   type GitHubActivityEntry,
-  type GitHubActivityFilter,
   type PullRequestEntry,
+  type RepoOrder,
   type PullRequestItem,
 } from "../lib/github-activity";
 import type { ReactionCount } from "../lib/reactions";
 import { tx, type Locale } from "../lib/locale";
+import { BoardInfo, Rank, ThisWeek, WeekDots } from "./week-dots";
+import { repoPagePath } from "../lib/directory";
 
 const PAGE_SIZE = 20;
+/** Repositories shown under the leaderboard before "See all": a handful, not the list. */
+const REPOS_SHOWN = 5;
 /** How many repositories a commit summary names before "+N". */
 const SUMMARY_REPOS = 4;
 /** Pull requests listed in a grouped entry before the rest fold away. */
 const PRS_SHOWN = 3;
-/** Repositories shown in the sidebar before the rest fold behind "More…". */
-const REPOS_SHOWN = 8;
 /** How long typing rests before the address catches up. Browsers throttle history writes. */
 const SEARCH_SETTLE_MS = 300;
 
@@ -52,40 +69,6 @@ const SEARCH_SETTLE_MS = 300;
  * can still be shared, reloaded, and gone back from. The directory works
  * the same way; see DirectoryView.
  */
-/**
- * /activity is on its way to becoming a leaderboard (#186). Until it is, the
- * page says so and asks for ideas on the issue: in the sidebar on a laptop,
- * and under the heading on a phone, where it can be closed.
- */
-function LeaderboardNote({ locale, className, onClose }: { locale: Locale; className: string; onClose?: () => void }) {
-  return (
-    <div className={`ax-roadmap tone-done ${className}`}>
-      <p className="ax-roadmap-eyebrow">
-        <span aria-hidden="true">🏆</span>
-        {tx(locale, "Segera", "Coming soon")}
-      </p>
-      {onClose ? (
-        <button type="button" className="ax-roadmap-close" aria-label={tx(locale, "Tutup info leaderboard", "Close the leaderboard note")} onClick={onClose}>
-          <span aria-hidden="true">×</span>
-        </button>
-      ) : null}
-      <p className="ax-roadmap-title">
-        <strong>{tx(locale, "Halaman ini bakal jadi leaderboard", "This page is becoming a leaderboard")}</strong>
-      </p>
-      <p>
-        {tx(
-          locale,
-          "Lengkap dengan gamifikasi—masih dikerjakan. Punya ide? Langsung komen di issue-nya.",
-          "With gamification—still in progress. Have an idea? Just comment on the issue.",
-        )}
-      </p>
-      <a href={leaderboardIssueUrl} target="_blank" rel="noopener noreferrer">
-        {tx(locale, "Buka issue", "Open the issue")} <span aria-hidden="true">↗</span>
-      </a>
-    </div>
-  );
-}
-
 export function ActivityView({
   entries,
   reactions,
@@ -93,7 +76,9 @@ export function ActivityView({
   today,
   locale,
   unavailable,
-  leaderboardNoteClosed = false,
+  viewerHandle = null,
+  ownBoards,
+  listed = [],
 }: {
   entries: GitHubActivityEntry[];
   /** Per pull request URL, or per summary key. */
@@ -103,11 +88,15 @@ export function ActivityView({
   today: string;
   locale: Locale;
   unavailable: boolean;
-  /** The phone's copy of the leaderboard note was closed (its cookie, read on the server). */
-  leaderboardNoteClosed?: boolean;
+  /** The signed-in member's GitHub handle, when they are shown here: their own row on the board. */
+  viewerHandle?: string | null;
+  /** The own-repos boards, from the server (see `ownBoards`). */
+  ownBoards?: OwnBoards;
+  /** The repos the directory lists, as `owner/name` in lower case: those have a page here. */
+  listed?: string[];
 }) {
   const searchParams = useSearchParams();
-  const [noteOpen, setNoteOpen] = useState(!leaderboardNoteClosed);
+  const withPage = useMemo(() => new Set(listed), [listed]);
   const fromUrl = readActivityFilters(searchParams);
   // What is typed is held here and written to the address once typing rests:
   // the list follows every key, the history does not.
@@ -147,12 +136,20 @@ export function ActivityView({
   };
 
   const current = { ...fromUrl, q: q.slice(0, 100) };
-  const scopes = useMemo(() => scopeCounts(entries), [entries]);
-  // The sidebar narrows within the scope showing, as the directory's does within local or global.
-  const scoped = useMemo(() => inScope(entries, current.scope), [entries, current.scope]);
-  const kinds = kindCounts(scoped);
-  const people = useMemo(() => activityPeople(scoped), [scoped]);
-  const repos = useMemo(() => activityRepos(scoped), [scoped]);
+  const boardWeeks = useMemo(() => boardWindow(today, current.weeks), [today, current.weeks]);
+  // Everything else narrows within the scope and the weeks showing.
+  const scoped = useMemo(() => inWindow(inScope(entries, current.scope), boardWeeks), [entries, current.scope, boardWeeks]);
+  const people = useMemo(() => activityPeople(entries), [entries]);
+  // The board counts contributions or PRs to their own repos; every PR
+  // opened, or only those merged (see `boardChoice`).
+  const choice = boardChoice(current);
+  const board = useMemo(
+    () =>
+      choice.of === "own"
+        ? (ownBoards?.[`${choice.weeks}:${choice.count}`] ?? [])
+        : seasonBoard(boardEntries(entries, [], "external", choice.count), today, undefined, boardWeeks),
+    [entries, ownBoards, choice.of, choice.count, choice.weeks, today, boardWeeks],
+  );
   const matched = useMemo(
     () => queryActivity(scoped, current),
     [scoped, current.kind, current.member, current.repo, current.q], // eslint-disable-line react-hooks/exhaustive-deps
@@ -162,104 +159,48 @@ export function ActivityView({
   const pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
   const page = Math.min(requested, pages);
   const shown = matched.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const filtered = current.kind !== "all" || Boolean(current.member || current.repo || current.q.trim());
-  const reset = activityPath({ scope: current.scope });
+  // Narrowed by the feed's own filters; the board's choices are not undone by a reset.
+  const filtered = Boolean(current.member || current.repo || current.q.trim());
+  const reset = activityPath({ ...current, member: "", repo: "", q: "" });
 
-  const scopeLabels: Record<ActivityScope, string> = {
-    all: tx(locale, "Semua", "All"),
-    external: tx(locale, "Ke luar", "Contributions"),
-    own: tx(locale, "Sendiri", "Own"),
-  };
-  const kindLabels: Record<GitHubActivityFilter, string> = {
-    all: tx(locale, "Semua", "All"),
-    merged: tx(locale, "PR merged", "Merged PRs"),
-    open: tx(locale, "PR direview", "PRs in review"),
-    commits: tx(locale, "Ringkasan", "Summaries"),
-  };
   const memberName = people.find(({ person }) => person.handle.toLowerCase() === current.member.toLowerCase())?.person.name;
-  const active: ActiveFilter[] = [
-    ...(current.kind !== "all" ? [{ label: kindLabels[current.kind], href: activityPath({ ...current, kind: "all" }) }] : []),
+  // Who or where the feed is narrowed to, each with a way back.
+  const chips = [
     ...(current.member ? [{ label: memberName || `@${current.member}`, href: activityPath({ ...current, member: "" }) }] : []),
     ...(current.repo ? [{ label: current.repo, href: activityPath({ ...current, repo: "" }) }] : []),
   ];
 
   return (
     <InstantNav navigate={navigate}>
-      {noteOpen ? (
-        <LeaderboardNote
-          locale={locale}
-          className="ax-roadmap-phone"
-          onClose={() => {
-            document.cookie = `${LEADERBOARD_NOTE_COOKIE}=1; path=/; max-age=${30 * 86400}; samesite=lax`;
-            setNoteOpen(false);
-          }}
-        />
-      ) : null}
-      <div className="dx-layout">
-        <FilterPanel active={active}>
-          {/* Where this page is headed, above the filters it will outgrow. On a
-              phone the filters fold into a sheet, so the note sits under the
-              heading instead (below). */}
-          <LeaderboardNote locale={locale} className="ax-roadmap-side" />
-          <FacetGroup title={tx(locale, "Jenis", "Kind")}>
-            {(["all", "merged", "open", "commits"] as const)
-              .filter((kind) => kind === "all" || kinds[kind] > 0 || current.kind === kind)
-              .map((kind) => (
-                <FacetLink
-                  key={kind}
-                  active={current.kind === kind}
-                  href={activityPath({ ...current, kind: current.kind === kind && kind !== "all" ? "all" : kind })}
-                  count={kinds[kind]}
-                  icon={kind === "all" ? undefined : <KindIcon kind={kind} />}
-                >
-                  {kindLabels[kind]}
-                </FacetLink>
-              ))}
-          </FacetGroup>
+      <ActivityControls choice={choice} current={current} locale={locale} navigate={navigate} />
+      <div className="dx-layout ax-layout">
+        {/* The left column: the leaderboard, and under it where the PRs went.
+            On a phone the column comes apart: the board above the feed, the
+            repos after it. */}
+        <div className="ax-side">
+          <Leaderboard
+            rows={board}
+            choice={choice}
+            boardWeeks={boardWeeks}
+            current={current}
+            viewerHandle={viewerHandle}
+            locale={locale}
+          />
 
-          {people.length > 0 ? (
-            <FacetGroup title={tx(locale, "Paling aktif", "Most active")} more={tx(locale, "Member lainnya…", "More members…")}>
-              {people.map(({ person, count }) => {
-                const on = person.handle.toLowerCase() === current.member.toLowerCase();
-                return (
-                  <FacetLink
-                    key={person.id}
-                    active={on}
-                    href={activityPath({ ...current, member: on ? "" : person.handle })}
-                    count={count}
-                    icon={<Avatar handle={person.handle} size={18} />}
-                  >
-                    {person.name || `@${person.handle}`}
-                  </FacetLink>
-                );
-              })}
-            </FacetGroup>
-          ) : null}
+          <RepoList entries={scoped} current={current} listed={withPage} locale={locale} />
+        </div>
 
-          {repos.length > 0 ? (
-            <FacetGroup
-              title={tx(locale, "Repo tujuan PR", "PRs went to")}
-              more={repos.length > REPOS_SHOWN ? tx(locale, "Repo lainnya…", "More repos…") : undefined}
-              openMore={repos.findIndex(({ repo }) => repo === current.repo) >= REPOS_SHOWN}
-            >
-              {repos.map(({ repo, count }) => (
-                <FacetLink
-                  key={repo}
-                  active={current.repo === repo}
-                  href={activityPath({ ...current, repo: current.repo === repo ? "" : repo })}
-                  count={count}
-                  // eslint-disable-next-line @next/next/no-img-element -- the repository owner's GitHub picture
-                  icon={<img className="ax-facet-avatar" src={ownerAvatar(repo, 36)} alt="" width={18} height={18} loading="lazy" />}
-                >
-                  {repo}
-                </FacetLink>
-              ))}
-            </FacetGroup>
-          ) : null}
-        </FilterPanel>
-
-        <section ref={results} className="dx-results" aria-label={tx(locale, "Aktivitas", "Activity")}>
-          <div className="dx-toolbar">
+        <section ref={results} className="dx-results" aria-labelledby="feed-title">
+          {/* The feed under its own name: the page is the leaderboard, this is
+              what the ranking is made of. */}
+          <div className="ax-feed-head">
+            <h2 id="feed-title">{tx(locale, "Aktivitas publik terbaru dari GitHub anggota", "Latest public activity from members' GitHub")}</h2>
+            <p className="dx-count" role="status">
+              <strong>{matched.length}</strong> {tx(locale, "aktivitas", "entries")}
+              {filtered ? <> · <InstantLink href={reset}>reset</InstantLink></> : null}
+            </p>
+          </div>
+          <div className="dx-toolbar ax-toolbar">
             <form
               className="dx-search"
               action="/"
@@ -281,27 +222,19 @@ export function ActivityView({
                 />
               </label>
             </form>
-            {/* Whose repositories: the same toggle as the directory's local and
-                global, in plain sight rather than in the sidebar. */}
-            <nav className="dx-scope" aria-label={tx(locale, "Repo orang lain atau sendiri", "Other people's repos or their own")}>
-              {ACTIVITY_SCOPES.map((scope) => (
-                <InstantLink
-                  key={scope}
-                  className={current.scope === scope ? "is-active" : ""}
-                  aria-current={current.scope === scope ? "true" : undefined}
-                  // A new scope starts its sidebar afresh: a member or repo picked in one may not be in the other.
-                  href={activityPath({ scope, q: current.q })}
-                >
-                  {scopeLabels[scope]}
-                  {scope !== "all" ? <span>{scopes[scope]}</span> : null}
-                </InstantLink>
-              ))}
-            </nav>
-            <p className="dx-count" role="status">
-              <strong>{matched.length}</strong> {tx(locale, "aktivitas", "entries")}
-              {filtered ? <> · <InstantLink href={reset}>reset</InstantLink></> : null}
-            </p>
           </div>
+
+          {chips.length > 0 ? (
+            <ul className="ax-chips" aria-label={tx(locale, "Filter aktif", "Active filters")}>
+              {chips.map((chip) => (
+                <li key={chip.href}>
+                  <InstantLink href={chip.href} aria-label={tx(locale, `Hapus filter ${chip.label}`, `Remove filter ${chip.label}`)}>
+                    {chip.label} <span aria-hidden="true">×</span>
+                  </InstantLink>
+                </li>
+              ))}
+            </ul>
+          ) : null}
 
           {unavailable ? (
             <p className="public-data-notice" role="status">
@@ -325,19 +258,19 @@ export function ActivityView({
             </div>
           ) : (
             <div className="ax-timeline">
-              {groupByDay(shown).map(({ day, entries: onDay }) => (
+              {timelineGroups(shown, today, locale).map(({ day, title, entries: onDay }) => (
                 <section key={day} className="ax-day" aria-labelledby={`day-${day}`}>
                   <h2 id={`day-${day}`} className="ax-day-title">
-                    {dayLabel(day, today, locale)}
+                    {title}
                   </h2>
                   <ol className="ax-events">
                     {onDay.map((entry) => (
                       <li key={entry.key} className="ax-event">
                         <Avatar handle={entry.person.handle} size={32} />
                         {entry.kind === "pull_request" ? (
-                          <PullRequestEvent entry={entry} locale={locale} reactions={reactions[entry.url] ?? []} viewerName={viewerName} />
+                          <PullRequestEvent entry={entry} listed={withPage.has(entry.repo)} locale={locale} reactions={reactions[entry.url] ?? []} viewerName={viewerName} />
                         ) : (
-                          <CommitSummaryEvent entry={entry} locale={locale} reactions={reactions[entry.key] ?? []} viewerName={viewerName} />
+                          <CommitSummaryEvent entry={entry} today={today} locale={locale} reactions={reactions[entry.key] ?? []} viewerName={viewerName} />
                         )}
                       </li>
                     ))}
@@ -376,19 +309,328 @@ export function ActivityView({
   );
 }
 
-function KindIcon({ kind }: { kind: Exclude<GitHubActivityFilter, "all"> }) {
-  if (kind === "commits") {
-    return (
-      <svg className="dx-track-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="3.5" />
-        <path d="M3 12h5.5M15.5 12H21" />
-      </svg>
-    );
-  }
-  return <PullRequestIcon merged={kind === "merged"} />;
+/** Repos shown before "See all" on a phone, where the card sits above the feed. */
+const REPOS_SHOWN_PHONE = 3;
+/** Faces shown per repo before "+n". */
+const FACES_SHOWN = 3;
+
+/**
+ * Where the pull requests in the feed went, as a card under the ranking: who
+ * went there and how lately, not only how many PRs — newest first by default,
+ * so one very busy repo does not sit on top for good, with most PRs and most
+ * people a pill away. Each repo narrows the feed to it; long names stay on one
+ * line, whole in the tooltip.
+ */
+function RepoList({
+  entries,
+  current,
+  listed,
+  locale,
+}: {
+  entries: GitHubActivityEntry[];
+  current: ActivityFilters;
+  listed: ReadonlySet<string>;
+  locale: Locale;
+}) {
+  const [order, setOrder] = useState<RepoOrder>("recent");
+  const [expanded, setExpanded] = useState(false);
+  const repos = useMemo(() => repoSummaries(entries, order), [entries, order]);
+  if (repos.length === 0) return null;
+  // The repo being looked at is never folded away.
+  const open = expanded || repos.findIndex(({ repo }) => repo === current.repo) >= REPOS_SHOWN_PHONE;
+  const orderLabels: Record<RepoOrder, string> = {
+    recent: tx(locale, "terbaru", "newest"),
+    prs: tx(locale, "PR terbanyak", "most PRs"),
+    people: tx(locale, "kontributor terbanyak", "most people"),
+  };
+
+  // No card: a plain list under the ranking, the way the directory's
+  // sidebar lists read — a small title with the order beside it, then rows.
+  return (
+    <section className="ax-where" aria-labelledby="repos-title">
+      <div className="ax-where-head">
+        <h2 id="repos-title">{tx(locale, "Repo tujuan PR", "Where PRs went")}</h2>
+        <label>
+          <span className="sr-only">{tx(locale, "Urutkan repo", "Order repos")}</span>
+          <select className="ax-where-order" value={order} onChange={(event) => setOrder(REPO_ORDERS.find((each) => each === event.target.value) ?? "recent")}>
+            {REPO_ORDERS.map((each) => (
+              <option key={each} value={each}>
+                {orderLabels[each]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <ol className={`ax-where-list ${open ? "is-expanded" : ""}`}>
+        {repos.map(({ repo, prs, people, lastAt }) => {
+          const on = current.repo === repo;
+          return (
+            <li key={repo} className={on ? "is-active" : ""}>
+              <InstantLink href={activityPath({ ...current, repo: on ? "" : repo })} aria-current={on ? "true" : undefined} title={repo}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- the repository owner's GitHub picture */}
+                <img className="ax-where-logo" src={ownerAvatar(repo, 36)} alt="" width={20} height={20} loading="lazy" />
+                <span className="ax-where-body">
+                  <span className="ax-where-name">
+                    <small>{repo.slice(0, repo.indexOf("/") + 1)}</small>
+                    {repoName(repo)}
+                  </span>
+                  <span className="ax-where-meta">
+                    <span className="ax-where-faces" aria-label={people.map((person) => person.name || person.handle).join(", ")}>
+                      {people.slice(0, FACES_SHOWN).map((person) => (
+                        <Avatar key={person.id} handle={person.handle} size={16} />
+                      ))}
+                      {people.length > FACES_SHOWN ? <span className="ax-where-more">+{people.length - FACES_SHOWN}</span> : null}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <RelativeTime value={lastAt} locale={locale} />
+                  </span>
+                </span>
+                <span className="ax-where-count">{prs}</span>
+              </InstantLink>
+              {/* The row filters the feed; the repo it is filtered to also
+                  offers its page here, when the directory lists it. */}
+              {on && listed.has(repo) ? (
+                <Link className="ax-where-page" href={repoPagePath(repo)}>
+                  {tx(locale, "Halaman repo", "Repo page")} <span aria-hidden="true">→</span>
+                </Link>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      {repos.length > REPOS_SHOWN_PHONE ? (
+        <button
+          type="button"
+          className={`ax-where-toggle ${repos.length <= REPOS_SHOWN ? "is-phone-only" : ""}`}
+          aria-expanded={open}
+          onClick={() => setExpanded((was) => !was)}
+        >
+          {open ? tx(locale, "Tampilkan lebih sedikit", "Show fewer") : tx(locale, `Lihat semua (${repos.length})`, `See all (${repos.length})`)}
+        </button>
+      ) : null}
+    </section>
+  );
 }
 
-function PullRequestIcon({ merged }: { merged: boolean }) {
+/** How many rows the board shows here; the whole of it is on /leaderboard. */
+const BOARD_SHOWN = 5;
+
+/**
+ * The left column: who keeps at it (see `seasonBoard`), the top few with the
+ * whole board a link away on /leaderboard. A name opens their profile; the
+ * funnel beside it narrows the feed to them. A signed-in member outside the shown rows still
+ * sees their own.
+ */
+function Leaderboard({
+  rows: all,
+  choice,
+  boardWeeks,
+  current,
+  viewerHandle,
+  locale,
+}: {
+  rows: ConsistencyRow[];
+  choice: LeaderboardChoice;
+  /** The weeks the board counts: the season's, or the last four or eight. */
+  boardWeeks: BoardWindow;
+  current: ActivityFilters;
+  viewerHandle: string | null;
+  locale: Locale;
+}) {
+  const rows = all.slice(0, BOARD_SHOWN);
+  const viewerKey = viewerHandle?.toLowerCase() ?? "";
+  const viewerRank = viewerKey ? all.findIndex(({ person }) => person.handle.toLowerCase() === viewerKey) : -1;
+  const score = ({ filled }: ConsistencyRow) => `${filled}/${boardWeeks.current + 1}`;
+  const where = choice.of === "own" ? tx(locale, "repo sendiri", "own repos") : tx(locale, "repo orang lain", "other people's repos");
+
+  return (
+    <aside className="ax-board tone-done" aria-labelledby="board-title">
+      <div className="ax-board-head">
+        <h2 id="board-title">
+          <span aria-hidden="true">🏆</span> Board of contribution
+          <BoardInfo weeks={boardWeeks} span={current.weeks} of={choice.of} count={choice.count} locale={locale} />
+        </h2>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="ax-board-empty">
+          {tx(
+            locale,
+            `Belum ada PR ke ${where} ${current.weeks === "season" ? "musim ini" : `dalam ${current.weeks} minggu terakhir`}. Satu PR minggu ini sudah cukup untuk mulai!`,
+            `No PRs to ${where} ${current.weeks === "season" ? "this season" : `in the last ${current.weeks} weeks`} yet. One PR this week is enough to start!`,
+          )}
+        </p>
+      ) : (
+        <ol className={`ax-board-list is-${choice.count}`}>
+          {rows.map((row, index) => {
+            const { person, weeks, prs, streak } = row;
+            const on = person.handle.toLowerCase() === current.member.toLowerCase();
+            const mine = person.handle.toLowerCase() === viewerKey;
+            return (
+              <li key={person.id} className={`${on ? "is-active" : ""} ${mine ? "is-mine" : ""}`}>
+                <Link className="ax-board-person" href={`/u/${encodeURIComponent(person.username)}`}>
+                  <span className="ax-board-rank" aria-label={tx(locale, `Peringkat ${index + 1}`, `Rank ${index + 1}`)}>
+                    <Rank place={index + 1} />
+                  </span>
+                  <Avatar handle={person.handle} size={24} />
+                  <span className="ax-board-who">
+                    <span className="ax-board-name">{person.name || `@${person.handle}`}</span>
+                    <span className="ax-board-meta">
+                      <WeekDots weeks={weeks} current={boardWeeks.current} slim locale={locale} />
+                      <span>{tx(locale, `${prs} PR`, `${prs} ${prs === 1 ? "PR" : "PRs"}`)}</span>
+                      {streak > 0 ? <span aria-label={tx(locale, `streak ${streak} minggu`, `${streak}-week streak`)}>🔥 {streak}</span> : null}
+                    </span>
+                  </span>
+                  <span className="ax-board-score">
+                    <strong>{score(row)}</strong>
+                  </span>
+                </Link>
+                <InstantLink
+                  className="ax-board-filter"
+                  href={activityPath({ ...current, member: on ? "" : person.handle })}
+                  aria-current={on ? "true" : undefined}
+                  aria-label={on ? tx(locale, "Tampilkan semua orang", "Show everyone") : tx(locale, `Feed ${person.name || person.handle} saja`, `Only ${person.name || person.handle} in the feed`)}
+                  title={on ? tx(locale, "Tampilkan semua orang", "Show everyone") : tx(locale, "Feed orang ini saja", "Only them in the feed")}
+                >
+                  <FilterIcon />
+                </InstantLink>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      <ThisWeek
+        className="ax-board-week"
+        moreHref={leaderboardPath(choice)}
+        names={all.filter(({ weeks }) => weeks[boardWeeks.current]).map(({ person }) => person.name || `@${person.handle}`)}
+        locale={locale}
+      />
+
+      {viewerRank >= BOARD_SHOWN ? (
+        <p className={`ax-board-you is-${choice.count}`}>
+          <Link href={`/u/${encodeURIComponent(all[viewerRank].person.username)}#season-heading`}>
+            {tx(locale, "Kamu", "You")} <strong>#{viewerRank + 1}</strong>
+          </Link>
+          <WeekDots weeks={all[viewerRank].weeks} current={boardWeeks.current} slim locale={locale} />
+          <span>{score(all[viewerRank])}</span>
+          {all[viewerRank].streak > 0 ? <span>🔥 {all[viewerRank].streak}</span> : null}
+        </p>
+      ) : viewerKey && viewerRank < 0 ? (
+        <p className="ax-board-you">
+          {choice.of === "external"
+            ? tx(locale, "Kamu belum punya PR ke repo orang lain di minggu-minggu ini. PR ke repo sendiri ada di pilihan “repo sendiri”.", "You have no PRs to other people's repos in these weeks. PRs to your own repos are under “own repos”.")
+            : tx(locale, "Kamu belum punya PR ke repo sendiri di minggu-minggu ini.", "You have no PRs to your own repos in these weeks.")}
+        </p>
+      ) : null}
+
+      <p className="ax-board-foot">
+        {/* A plain Link: it leaves this page, where InstantLink only swaps
+            the feed's filters in place. */}
+        <Link href={leaderboardPath(choice)}>
+          {tx(locale, `Leaderboard lengkap (${all.length})`, `Full leaderboard (${all.length})`)} <span aria-hidden="true">→</span>
+        </Link>
+      </p>
+    </aside>
+  );
+}
+
+/** The page's choices, above both columns since they set both. A GET form, so it works before the script does. */
+function ActivityControls({
+  choice,
+  current,
+  locale,
+  navigate,
+}: {
+  choice: LeaderboardChoice;
+  current: ActivityFilters;
+  locale: Locale;
+  navigate: (href: string) => void;
+}) {
+  const spanLabels: Record<BoardSpan, string> = {
+    season: tx(locale, "musim ini", "this season"),
+    "4": tx(locale, "4 minggu terakhir", "last 4 weeks"),
+    "8": tx(locale, "8 minggu terakhir", "last 8 weeks"),
+  };
+  const countLabels: Record<BoardCount, string> = {
+    opened: tx(locale, "semua PR yang dibuka", "every PR opened"),
+    merged: tx(locale, "PR merged saja", "merged PRs only"),
+  };
+
+  return (
+    <form className="ax-controls" action="/">
+      {current.member ? <input type="hidden" name="member" value={current.member} /> : null}
+      {current.repo ? <input type="hidden" name="repo" value={current.repo} /> : null}
+      {current.q ? <input type="hidden" name="q" value={current.q} /> : null}
+      <span className="ax-controls-label">{tx(locale, "Menampilkan", "Showing")}</span>
+      <label>
+        <span className="sr-only">{tx(locale, "Repo siapa", "Whose repos")}</span>
+        <select
+          name="scope"
+          className={`lb-filter ${choice.of !== "external" ? "is-set" : ""}`}
+          value={choice.of}
+          onChange={(event) =>
+            navigate(activityPath({ ...current, scope: event.target.value === "own" ? "own" : "external", member: "", repo: "" }))
+          }
+        >
+          <option value="external">{tx(locale, "kontribusi", "contributions")}</option>
+          <option value="own">{tx(locale, "repo sendiri", "own repos")}</option>
+        </select>
+      </label>
+      <label>
+        <span className="sr-only">{tx(locale, "Rentang minggu", "Weeks")}</span>
+        <select
+          name="weeks"
+          className={`lb-filter ${current.weeks !== "season" ? "is-set" : ""}`}
+          value={current.weeks}
+          onChange={(event) => {
+            const weeks = event.target.value;
+            navigate(activityPath({ ...current, weeks: isBoardSpan(weeks) ? weeks : "season" }));
+          }}
+        >
+          {BOARD_SPANS.map((span) => (
+            <option key={span} value={span}>
+              {spanLabels[span]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {choice.of === "own" ? null : (
+        <label>
+          <span className="sr-only">{tx(locale, "PR yang dihitung", "Which PRs")}</span>
+          <select
+            name="count"
+            className={`lb-filter ${choice.count !== "opened" ? "is-set" : ""}`}
+            value={choice.count}
+            onChange={(event) => {
+              const count = event.target.value;
+              navigate(activityPath({ ...current, count: isBoardCount(count) ? count : "opened" }));
+            }}
+          >
+            {BOARD_COUNTS.map((count) => (
+              <option key={count} value={count}>
+                {countLabels[count]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <noscript>
+        <button type="submit">{tx(locale, "Terapkan", "Apply")}</button>
+      </noscript>
+    </form>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path d="M2 3h12l-4.5 5.5V13l-3-1.5v-3z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function PullRequestIcon({ merged }: { merged: boolean }) {
   return (
     <svg className={`ax-pr-icon ${merged ? "is-merged" : "is-open"}`} viewBox="0 0 16 16" aria-hidden="true">
       {merged ? (
@@ -405,6 +647,31 @@ function Avatar({ handle, size }: { handle: string; size: number }) {
   // way the directory's badges show faces.
   // eslint-disable-next-line @next/next/no-img-element
   return <img className="ax-avatar" src={`https://github.com/${encodeURIComponent(handle)}.png?size=${size * 2}`} alt="" width={size} height={size} loading="lazy" />;
+}
+
+const clockFormat = new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Asia/Jakarta" });
+
+/** "14.05" in Jakarta: the same on the server and in any browser. */
+function clock(at: string): string {
+  return clockFormat.format(new Date(at));
+}
+
+/**
+ * The timeline's sections. A pull request sits under the day it happened; a
+ * commit summary covers the last SUMMARY_DAYS, so the summaries share one
+ * section under that name instead of the day of their latest commit — under
+ * "Today" they read as if all of it happened today.
+ */
+function timelineGroups(entries: GitHubActivityEntry[], today: string, locale: Locale) {
+  const summaries = entries.filter((entry) => entry.kind === "commit_summary");
+  const days = groupByDay(entries.filter((entry) => entry.kind !== "commit_summary")).map(({ day, entries: onDay }) => ({
+    day,
+    title: dayLabel(day, today, locale),
+    entries: onDay,
+  }));
+  return summaries.length > 0
+    ? [{ day: "summaries", title: tx(locale, `${SUMMARY_DAYS} hari terakhir`, `Last ${SUMMARY_DAYS} days`), entries: summaries }, ...days]
+    : days;
 }
 
 /** "Hari ini", "Kemarin", or the date, for a day key from groupByDay. */
@@ -424,13 +691,19 @@ function Who({ entry }: { entry: GitHubActivityEntry }) {
   );
 }
 
-function RepoLink({ repo }: { repo: string }) {
-  return (
-    <a className="ax-repo" href={`https://github.com/${repo}`} target="_blank" rel="noopener noreferrer">
+/** A repo the directory lists opens its page here; any other, GitHub. */
+function RepoLink({ repo, listed }: { repo: string; listed: boolean }) {
+  const content = (
+    <>
       {/* eslint-disable-next-line @next/next/no-img-element -- the repository owner's GitHub picture */}
       <img src={ownerAvatar(repo, 32)} alt="" width={14} height={14} loading="lazy" />
       {repo}
-    </a>
+    </>
+  );
+  return listed ? (
+    <Link className="ax-repo" href={repoPagePath(repo)}>{content}</Link>
+  ) : (
+    <a className="ax-repo" href={`https://github.com/${repo}`} target="_blank" rel="noopener noreferrer">{content}</a>
   );
 }
 
@@ -440,11 +713,14 @@ function RepoLink({ repo }: { repo: string }) {
  */
 function PullRequestEvent({
   entry,
+  listed,
   locale,
   reactions,
   viewerName,
 }: {
   entry: PullRequestEntry;
+  /** The directory lists the repo, so it has a page here. */
+  listed: boolean;
   locale: Locale;
   reactions: ReactionCount[];
   viewerName: string | null;
@@ -473,10 +749,11 @@ function PullRequestEvent({
   return (
     <div className="ax-event-body">
       <p className="ax-event-line">
-        <Who entry={entry} /> {what} <RepoLink repo={entry.repo} />
-        <span className="ax-time">
-          <RelativeTime value={entry.at} locale={locale} />
-        </span>
+        <Who entry={entry} /> {what} <RepoLink repo={entry.repo} listed={listed} />
+        {/* The day is the group's heading; the time is enough here. */}
+        <time className="ax-time" dateTime={entry.at}>
+          {clock(entry.at)}
+        </time>
       </p>
       <ul className="ax-prs">{shown.map(item)}</ul>
       {folded.length > 0 ? (
@@ -493,11 +770,13 @@ function PullRequestEvent({
 /** Work on one's own repositories — commits and merged PRs — one event per person. */
 function CommitSummaryEvent({
   entry,
+  today,
   locale,
   reactions,
   viewerName,
 }: {
   entry: CommitSummaryEntry;
+  today: string;
   locale: Locale;
   reactions: ReactionCount[];
   viewerName: string | null;
@@ -509,7 +788,10 @@ function CommitSummaryEvent({
       <p className="ax-event-line">
         <Who entry={entry} />{" "}
         {ownWork(entry, locale)}
-        <span className="ax-time">{tx(locale, `${SUMMARY_DAYS} hari terakhir`, `last ${SUMMARY_DAYS} days`)}</span>
+        {/* The section already says how far back it goes; here, how recent the latest of it is. */}
+        <time className="ax-time" dateTime={entry.at}>
+          {tx(locale, "terakhir", "latest")} {latestLabel(entry.at, today, locale)}
+        </time>
       </p>
       <ul className="ax-repos">
         {named.map((repo) => (
@@ -525,6 +807,18 @@ function CommitSummaryEvent({
       <ReactionBar url={entry.key} initial={reactions} viewerName={viewerName} />
     </div>
   );
+}
+
+/**
+ * "hari ini", "kemarin", or the date: the day of a summary's latest commit or
+ * merge. No clock: GitHub dates a commit contribution by its day alone, so a
+ * time would be made up.
+ */
+function latestLabel(at: string, today: string, locale: Locale): string {
+  const day = dayKey(at, "Asia/Jakarta");
+  const label = dayLabel(day, today, locale);
+  const recent = day === today || label === tx(locale, "Kemarin", "Yesterday");
+  return recent ? label.toLowerCase() : label;
 }
 
 /** "made 205 commits and merged 40 pull requests in 7 of their own repos", leaving out what is zero. */

@@ -74,6 +74,7 @@ body {
 }
 a { color: inherit; text-decoration: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
+option { background: var(--paper); color: var(--ink); }
 button { cursor: pointer; }
 h1, h2, h3, h4, p { margin-top: 0; }
 /* People paste long unbroken strings — links, ids — into briefs and comments.
@@ -748,12 +749,12 @@ legend { font-size: 13px; font-weight: 700; padding: 0 8px; }
 /* The Google entry point is a link, not a submit button — it has to be a plain
    GET so the response that sends somebody to Google can carry the PKCE cookie
    that brings them back. It still has to look like the button it replaced. */
-.auth-form .google-auth-button { justify-content: center; text-decoration: none; width: 100%; }
-.auth-form .google-auth-button {
+.auth-form .google-auth-button, .gh-link .google-auth-button { justify-content: center; text-decoration: none; width: 100%; }
+.auth-form .google-auth-button, .gh-link .google-auth-button {
   align-items: center; background: light-dark(#ffffff, #1f1f1f); border: 1px solid light-dark(#d2d2d2, #383838); border-radius: 12px; color: var(--ink);
   display: flex; font-size: 14px; font-weight: 680; gap: 11px; min-height: 50px; transition: background .2s ease, border-color .2s ease, transform .2s ease;
 }
-.auth-form .google-auth-button:hover { background: light-dark(#f9f9f9, #1b1b1b); border-color: light-dark(#9e9e9e, #626262); transform: translateY(-1px); }
+.auth-form .google-auth-button:hover, .gh-link .google-auth-button:hover { background: light-dark(#f9f9f9, #1b1b1b); border-color: light-dark(#9e9e9e, #626262); transform: translateY(-1px); }
 .google-auth-button svg { flex: none; }
 .auth-switch { color: var(--muted); font-size: 14px; margin-top: 24px; text-align: center; }
 .auth-switch a { border-bottom: 1px solid var(--line-2); color: var(--ink); font-weight: 650; }
@@ -784,10 +785,16 @@ legend { font-size: 13px; font-weight: 700; padding: 0 8px; }
 .sign-in-inline > p:first-child { color: var(--ink-soft); line-height: 1.55; margin: 0 0 14px; }
 .sign-in-inline .auth-form { background: transparent; border: 0; border-radius: 0; margin: 0; padding: 0; }
 .sign-in-inline .google-auth-button { min-height: 48px; }
-.sign-in-inline .auth-provider-github { background: light-dark(#232323, #f3f3f3); border-color: light-dark(#232323, #f3f3f3); color: light-dark(#ffffff, #292929); }
-.sign-in-inline .auth-provider-github:hover { background: light-dark(#373737, #e2e2e2); border-color: light-dark(#373737, #e2e2e2); }
+.sign-in-inline .auth-provider-github, .gh-link .auth-provider-github { background: light-dark(#232323, #f3f3f3); border-color: light-dark(#232323, #f3f3f3); color: light-dark(#ffffff, #292929); }
+.sign-in-inline .auth-provider-github:hover, .gh-link .auth-provider-github:hover { background: light-dark(#373737, #e2e2e2); border-color: light-dark(#373737, #e2e2e2); }
 .signin-simple-alt a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
 .signin-simple-alt a:hover { color: var(--ink); }
+/* Google, one click away under the GitHub button, opened in place. */
+.signin-other { margin-top: 16px; }
+.signin-other summary { color: var(--muted); cursor: pointer; font-size: 13px; list-style: none; text-align: center; }
+.signin-other summary::-webkit-details-marker { display: none; }
+.signin-other summary:hover { color: var(--ink); }
+.signin-other[open] summary { margin-bottom: 12px; }
 .signin-simple .signin-privacy { border-top: 1px solid var(--line-soft); margin: 22px 0 0; max-width: none; padding-top: 16px; }
 .signin-form .auth-field { margin-bottom: 18px; }
 .signin-form .auth-field > label, .signin-form .auth-label-row label { font-size: 12px; font-weight: 720; margin: 0; }
@@ -1335,23 +1342,41 @@ body:has(main.discovery-page), body:has(main.people-page) { background: light-da
   .how-it-works { padding-left: 34px; padding-right: 34px; }
 }
 
-/* The phone's main menu: the two places, and the visitor's own, at the
+/* The phone's main menu: the site's places, and the visitor's own, at the
    thumb — a floating box clear of the screen's edges. Only below 860px, where
    the header's own menu is gone. */
 .bottom-nav { display: none; }
 @media (max-width: 860px) {
   .bottom-nav {
-    background: light-dark(rgba(255, 255, 255, .97), rgba(31, 31, 31, .97)); border: 1px solid light-dark(#e4e4e7, #383839);
-    border-radius: 18px; bottom: calc(12px + env(safe-area-inset-bottom)); box-shadow: 0 10px 30px light-dark(rgba(24, 24, 27, .14), rgba(0, 0, 0, .45));
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; left: 12px; margin: 0 auto; max-width: 480px;
+    /* Lifted off the page rather than the page's own colour — in dark mode
+       it was the same #1f1f1f and all but vanished: a lighter frosted glass,
+       a clearer edge and a deeper shadow, with what scrolls under it blurred. */
+    -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
+    background: light-dark(rgba(255, 255, 255, .82), rgba(39, 39, 42, .85));
+    border: 1px solid light-dark(rgba(9, 9, 11, .12), rgba(255, 255, 255, .14));
+    border-radius: 18px; bottom: calc(12px + env(safe-area-inset-bottom));
+    box-shadow: 0 12px 32px light-dark(rgba(24, 24, 27, .2), rgba(0, 0, 0, .65)), inset 0 1px 0 light-dark(rgba(255, 255, 255, .7), rgba(255, 255, 255, .06));
+    display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: 4px; left: 12px; margin: 0 auto; max-width: 480px;
     padding: 6px; position: fixed; right: 12px; z-index: 50;
   }
   .bottom-nav > a, .bottom-nav-placeholder {
-    align-items: center; border-radius: 12px; color: light-dark(#71717a, #a3a3ab); display: flex; flex-direction: column;
+    align-items: center; border-radius: 12px; color: light-dark(#52525b, #b4b4bc); display: flex; flex-direction: column;
     font-size: 11px; font-weight: 500; gap: 3px; justify-content: center; min-height: 50px;
   }
-  .bottom-nav > a:active { background: light-dark(#f4f4f5, #29292c); }
-  .bottom-nav > a.is-active { background: light-dark(#f4f4f5, #29292c); color: light-dark(#09090b, #eaeaed); font-weight: 600; }
+  /* A tap is answered at once and smoothly: no grey flash or double-tap zoom
+     wait from the browser, and the pill fades rather than jumps. Its own
+     layer keeps the frosted glass from flickering while the page scrolls. */
+  .bottom-nav { transform: translateZ(0); }
+  .bottom-nav-skel-icon { border-radius: 50%; display: block; height: 20px; width: 20px; }
+  .bottom-nav-skel-label { display: block; height: 10px; width: 36px; }
+  .bottom-nav > a {
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: background-color .18s ease, color .18s ease;
+    user-select: none;
+  }
+  .bottom-nav > a:active { background: light-dark(rgba(9, 9, 11, .06), rgba(255, 255, 255, .08)); }
+  /* Where you are: a soft pill with the label in full ink, the same in both
+     themes — a solid one weighed more than anything else on the screen. */
+  .bottom-nav > a.is-active { background: light-dark(rgba(9, 9, 11, .07), rgba(255, 255, 255, .14)); color: light-dark(#09090b, #fafafa); font-weight: 600; }
   .bottom-nav .menu-icon { height: 22px; width: 22px; }
   /* Room for the bar, so the last of every page is not hidden under it. */
   body { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
@@ -1562,6 +1587,11 @@ form button[aria-busy="true"]::after,
   .dx-head-actions { grid-column: 1; }
   .dx-head-stats { grid-column: 2; grid-row: 3; margin-top: 12px; }
 }
+/* Between a phone and a laptop the sentence and the numbers do not fit side
+   by side: they stack, the numbers under the actions, as on a phone. */
+@media (max-width: 900px) {
+  .dx-head { align-items: flex-start; flex-direction: column; gap: 14px; }
+}
 .dx-head-stats div { display: flex; flex-direction: column-reverse; gap: 2px; }
 .dx-head-stats dt { color: var(--dx-muted); font-size: 12px; }
 .dx-head-stats dd { font-size: 24px; font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; margin: 0; }
@@ -1576,31 +1606,172 @@ form button[aria-busy="true"]::after,
 .dx-sheet-head, .dx-filterbar { display: none; }
 .dx-sheet-body { display: grid; gap: 14px; }
 .dx-facet + .dx-facet { border-top: 1px solid var(--dx-line); padding-top: 14px; }
-/* /activity's note on where it is headed, at the top of its filters. */
-.ax-roadmap {
-  background: var(--tone-soft); border-radius: 8px; color: var(--dx-text); font-size: 12.5px; line-height: 1.55;
-  margin: 0 0 14px; padding: 11px 12px 12px;
+/* The activity page's left column: the leaderboard (see Leaderboard in
+   activity-view.tsx). Wider than the directory's filters, for names and
+   scores side by side; sticky on a laptop, above the feed on a phone. */
+.ax-layout { grid-template-columns: 280px minmax(0, 1fr); }
+/* The page's choices above both columns; pills as on /leaderboard. */
+/* Clear of the head's rule above it, and nearer the board and feed it filters. */
+.ax-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+.ax-controls label { display: block; margin: 0; }
+.ax-controls-label { color: var(--dx-muted); font-size: 13px; margin-right: 2px; }
+.ax-controls noscript button { background: var(--dx-soft); border: 0; border-radius: 99px; font-size: 12.5px; height: 32px; padding: 0 12px; }
+/* The feed's heading, then what to show beside the search. */
+.ax-feed-head { align-items: baseline; display: flex; gap: 12px; justify-content: space-between; margin-bottom: 10px; }
+.ax-feed-head h2 { color: var(--dx-ink); font-size: 16px; font-weight: 650; letter-spacing: -.01em; margin: 0; }
+.ax-toolbar { flex-wrap: wrap; gap: 8px; }
+.ax-toolbar .dx-search { flex: 1 1 240px; max-width: none; }
+.ax-toolbar .ax-show select { font-weight: 550; }
+.ax-side { display: grid; gap: 20px; position: sticky; top: calc(var(--header-h) + 20px); }
+/* A plain card like the rest of the page, with purple — a merged PR's
+   colour — in its head, its scores and its links. */
+/* Not overflow:hidden, which would cut off the ⓘ's explanation; the head
+   rounds its own corners instead. */
+.ax-board { border: 1px solid var(--dx-line); border-radius: 12px; padding: 0 0 12px; }
+.ax-board > :not(.ax-board-head) { margin-left: 12px; margin-right: 12px; }
+/* The head is the scoreboard: a deep purple — a merged PR's colour — over a
+   plain list, with the title and the pills in white on it. White on purple in
+   both themes, so those pairs name the same colour twice. */
+.ax-board-head {
+  background: linear-gradient(135deg, light-dark(#8250df, #6e40c9), light-dark(#6639ba, #4c2889)); display: grid; gap: 8px;
+  border-radius: 11px 11px 0 0; margin-bottom: 8px; padding: 14px 16px 12px;
 }
-.ax-roadmap p { margin: 0 0 6px; }
-.ax-roadmap .ax-roadmap-eyebrow {
-  align-items: center; color: var(--tone); display: flex; font-size: 10.5px; font-weight: 700; gap: 5px;
-  letter-spacing: .06em; margin-bottom: 5px; text-transform: uppercase;
+.ax-board h2 { align-items: center; color: light-dark(#ffffff, #ffffff); display: flex; font-size: 15px; font-weight: 700; gap: 6px; margin: 0; }
+.ax-board-list { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.ax-board-list:not(.is-expanded) > li:nth-child(n + 11) { display: none; }
+.ax-board-list li { align-items: center; border-radius: 8px; display: flex; }
+.ax-board-person {
+  align-items: center; border-radius: 8px; color: var(--dx-text); display: grid; flex: 1; gap: 8px; grid-template-columns: 24px 24px minmax(0, 1fr) auto;
+  min-height: 40px; min-width: 0; padding: 6px 6px;
 }
-.ax-roadmap-eyebrow span { font-size: 13px; letter-spacing: 0; line-height: 1; }
-.ax-roadmap .ax-roadmap-title { margin-bottom: 3px; }
-.ax-roadmap strong { color: var(--dx-ink); font-size: 13.5px; font-weight: 650; line-height: 1.35; }
-.ax-roadmap a { color: var(--tone); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
-/* One note, two places: the sidebar on a laptop, under the heading on a phone,
-   where the sidebar is a sheet. Only the phone's can be closed. */
-.ax-roadmap-phone { display: none; position: relative; }
-.ax-roadmap-close {
-  align-items: center; background: none; border: 0; border-radius: 6px; color: var(--dx-muted); cursor: pointer; display: inline-flex;
-  font-size: 18px; height: 28px; justify-content: center; line-height: 1; padding: 0; position: absolute; right: 6px; top: 6px; width: 28px;
+.ax-board-person:hover { background: var(--dx-soft); color: var(--dx-ink); }
+.ax-board-filter { align-items: center; border-radius: 6px; color: var(--dx-muted); display: inline-flex; flex: none; height: 28px; justify-content: center; opacity: .55; width: 24px; }
+.ax-board-filter:hover, .ax-board-filter:focus-visible { background: var(--dx-soft); color: var(--tone); opacity: 1; }
+.ax-board-list li.is-active { background: var(--tone-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 45%, transparent); }
+.ax-board-list li.is-active .ax-board-person { color: var(--dx-ink); }
+.ax-board-list li.is-active .ax-board-filter { color: var(--tone); opacity: 1; }
+.ax-board-list li.is-mine .ax-board-name { color: var(--tone); }
+.ax-board-rank { display: flex; justify-content: center; }
+/* The funnel is a second thing a row does, so on a pointer it waits for the
+   row to be pointed at, and keeps no room for itself until then: the score
+   steps aside for it. The bar gives up the room, so its weeks close up into
+   one bar while they do — narrower segments with gaps read as a different
+   bar from the rows around it, one solid bar does not. On a touch screen,
+   and on the chosen row, the funnel stays. */
+@media (hover: hover) {
+  .ax-board-list li { position: relative; }
+  .ax-board-filter { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
+  .ax-board-person { transition: padding-right .15s ease; }
+  .ax-board-list li:is(:hover, :focus-within, .is-active) .ax-board-person { padding-right: 32px; }
+  .ax-board-list li:not(:hover, :focus-within, .is-active) .ax-board-filter { opacity: 0; }
+  .ax-board-list .ax-board-meta .ax-weeks.is-slim { border-radius: 1.5px; overflow: hidden; transition: gap .15s ease; }
+  .ax-board-list .ax-board-meta .ax-weeks.is-slim i { transition: border-radius .15s ease; }
+  .ax-board-list li:is(:hover, :focus-within, .is-active) .ax-weeks.is-slim { gap: 0; }
+  .ax-board-list li:is(:hover, :focus-within, .is-active) .ax-weeks.is-slim i { border-radius: 0; }
 }
-.ax-roadmap-close:hover { background: light-dark(rgba(0, 0, 0, .06), rgba(255, 255, 255, .08)); color: var(--dx-ink); }
+.ax-board-list img { border-radius: 50%; height: 24px; width: 24px; }
+.ax-board-who { display: grid; gap: 2px; min-width: 0; }
+.ax-board-name { font-size: 13.5px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The last twelve weeks under the name, oldest first: a filled dot for a week
+   with a merged PR. */
+.ax-weeks { display: flex; gap: 3px; }
+.ax-weeks i { background: var(--dx-line); border-radius: 50%; height: 6px; width: 6px; }
+.ax-weeks i.is-on { background: var(--tone); }
+.ax-weeks i.is-now { outline: 1.5px solid var(--tone); outline-offset: 1px; }
+.ax-weeks i.is-later { opacity: .4; }
+/* Slim: a thin bar of segments under a name in a list — this week a
+   half-tone until it is filled, no ring. */
+.ax-weeks.is-slim { gap: 1.5px; margin-top: 3px; }
+.ax-weeks.is-slim i { border-radius: 1px; height: 3px; width: 7px; }
+.ax-weeks.is-slim i.is-now { outline: 0; }
+.ax-weeks.is-slim i.is-now:not(.is-on) { background: color-mix(in srgb, var(--tone) 35%, var(--dx-line)); }
+/* The bar in the colour of what it counts, as the feed draws PRs: green for
+   every PR opened, purple (the board's own) for merged only. */
+.ax-board-list.is-opened .ax-weeks, .ax-board-you.is-opened .ax-weeks, .lb-board.is-opened .ax-weeks { --tone: light-dark(#1a7f37, #57ab5a); }
+/* Under a name: the bar, then how many PRs it was. The bar gives way when
+   the column is narrow — the card beside the feed is — the count never wraps. */
+/* Close under the name: the bar and the counts belong to it. */
+.ax-board-meta { align-items: center; color: var(--dx-muted); display: flex; font-size: 11px; gap: 6px; line-height: 1.3; min-width: 0; }
+.ax-board-meta .ax-weeks.is-slim { flex: 0 1 auto; margin-top: 0; min-width: 0; }
+.ax-board-meta .ax-weeks.is-slim i { flex: 0 1 7px; min-width: 2px; }
+.ax-board-meta > span { flex: none; white-space: nowrap; }
+.ax-board-score { align-items: baseline; color: var(--dx-muted); display: flex; font-size: 12px; gap: 6px; line-height: 1.2; white-space: nowrap; }
+.ax-board-score strong { color: var(--tone); font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.ax-board-score small { font-size: 11px; }
+.ax-board-empty { color: var(--dx-muted); font-size: 13px; line-height: 1.55; margin: 4px 4px 8px; }
+.ax-board-you { align-items: center; border-top: 1px dashed var(--dx-line); color: var(--dx-muted); display: flex; flex-wrap: wrap; font-size: 12.5px; gap: 4px 8px; line-height: 1.5; margin: 8px 4px 0; padding-top: 8px; }
+.ax-board-you a { color: var(--dx-text); font-weight: 600; }
+.ax-board-you strong { color: var(--tone); }
+.ax-board-you .ax-weeks.is-slim { margin-top: 0; }
+.ax-board-toggle {
+  background: none; border: 0; color: var(--tone); cursor: pointer; font-size: 12.5px; font-weight: 650; margin: 6px 0 0; padding: 4px; width: 100%;
+}
+.ax-board-toggle:hover { text-decoration: underline; text-underline-offset: 3px; }
+.ax-board-foot { border-top: 1px solid var(--dx-line); color: var(--dx-muted); font-size: 11.5px; line-height: 1.5; margin: 10px 4px 0; padding-top: 10px; }
+.ax-board-foot a { color: var(--tone); font-weight: 650; white-space: nowrap; }
+.ax-board .is-phone-only { display: none; }
+/* Who or where the feed is narrowed to, above it. */
+/* Where the PRs went: no card, a plain list under the ranking like the
+   directory's sidebar — a small grey title with the order beside it, then a
+   handful of rows: the repo on one line, who went there and how lately under
+   it, the PR count on the right. Only the ranking is a card. */
+.ax-where-head { align-items: center; display: flex; gap: 8px; justify-content: space-between; margin: 0 0 6px; padding: 0 10px; }
+.ax-where-head h2 { color: var(--dx-muted); font-size: 13px; font-weight: 600; margin: 0; }
+.ax-where-head label { display: block; margin: 0; }
+.ax-where-order {
+  appearance: none; background: transparent url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") no-repeat right 0 center / 11px 11px;
+  border: 0; color: var(--dx-muted); cursor: pointer; field-sizing: content; font: inherit; font-size: 12.5px; font-weight: 500;
+  height: auto; line-height: normal; margin: 0; padding: 2px 16px 2px 0; width: auto;
+}
+.ax-where-order:hover, .ax-where-order:focus-visible { color: var(--dx-ink); outline: none; }
+.ax-where-list { display: grid; gap: 1px; list-style: none; margin: 0; padding: 0; }
+.ax-where-list:not(.is-expanded) > li:nth-child(n + 6) { display: none; }
+.ax-where-list a {
+  align-items: center; border-radius: 7px; color: var(--dx-text); display: grid; gap: 9px;
+  grid-template-columns: 18px minmax(0, 1fr) auto; min-height: 34px; padding: 6px 10px;
+}
+.ax-where-list a:hover { background: var(--dx-soft); color: var(--dx-ink); }
+.ax-where-list li.is-active a { background: var(--dx-soft); color: var(--dx-ink); font-weight: 600; }
+/* Under the chosen repo: its page here, quietly, not another row. */
+.ax-where-list li.is-active a.ax-where-page {
+  background: none; color: var(--dx-muted); display: inline-flex; font-size: 12.5px; font-weight: 600; gap: 4px;
+  min-height: 0; padding: 4px 10px 6px 37px;
+}
+.ax-where-list li.is-active a.ax-where-page:hover { color: var(--dx-ink); text-decoration: underline; text-underline-offset: 3px; }
+.ax-where-logo { align-self: start; border-radius: 4px; height: 18px; margin-top: 1px; width: 18px; }
+.ax-where-body { display: grid; gap: 2px; min-width: 0; }
+.ax-where-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ax-where-name small { color: var(--dx-muted); font-size: inherit; }
+.ax-where-meta { align-items: center; color: var(--dx-faint); display: flex; font-size: 11px; gap: 5px; }
+.ax-where-faces { align-items: center; display: inline-flex; }
+.ax-where-faces img { border: 1.5px solid light-dark(#ffffff, #1f1f1f); border-radius: 50%; height: 14px; width: 14px; }
+.ax-where-faces img + img { margin-left: -4px; }
+.ax-where-more { color: var(--dx-faint); font-size: 11px; font-weight: 600; margin-left: 3px; }
+.ax-where-count { align-self: start; color: var(--dx-faint); font-family: var(--font-geist-mono), monospace; font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 2px; }
+.ax-where-toggle { background: none; border: 0; color: var(--dx-muted); cursor: pointer; font-size: 12.5px; font-weight: 600; margin: 4px 0 0; padding: 4px 10px; text-align: left; }
+.ax-where-toggle:hover { color: var(--dx-ink); }
+.ax-where .is-phone-only { display: none; }
+.ax-chips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0 0 12px; padding: 0; }
+.ax-chips a {
+  align-items: center; background: var(--dx-soft); border-radius: 99px; color: var(--dx-ink); display: inline-flex; font-size: 13px;
+  font-weight: 600; gap: 6px; padding: 5px 10px 5px 12px;
+}
+.ax-chips a span { color: var(--dx-muted); font-size: 15px; }
 @media (max-width: 900px) {
-  .ax-roadmap-phone { display: block; }
-  .ax-roadmap-side { display: none; }
+  .ax-layout { grid-template-columns: minmax(0, 1fr); }
+  /* The column comes apart: the board, the feed, then the repos. */
+  .ax-side { display: contents; }
+  .ax-toolbar .ax-show, .ax-toolbar .ax-show label, .ax-toolbar .ax-show select { width: 100%; }
+  /* The toolbar stacks here, so a flex basis would be a height. */
+  .ax-toolbar .dx-search { flex: none; }
+  .ax-board { order: 0; }
+  .ax-layout > .dx-results { order: 1; }
+  /* Above the feed here, shorter still: the feed's pages end the page. */
+  .ax-where { order: 0; }
+  .ax-where-list:not(.is-expanded) > li:nth-child(n + 4) { display: none; }
+  .ax-where .is-phone-only { display: block; }
+  .ax-board-list:not(.is-expanded) > li:nth-child(n + 6) { display: none; }
+  .ax-board .is-phone-only { display: block; }
 }
 .dx-facet-title { color: var(--dx-muted); font-size: 13px; font-weight: 600; margin: 0 0 6px; padding: 0 10px; }
 .dx-facet-more details > ul { display: grid; gap: 1px; list-style: none; margin: 0; padding: 0; }
@@ -2012,6 +2183,11 @@ form button[aria-busy="true"]::after,
 .desktop-nav > a:hover { background: light-dark(#f4f4f5, #29292c); color: light-dark(#09090b, #eaeaed); }
 .desktop-nav > a.is-active { color: light-dark(#09090b, #eaeaed); }
 .header-actions { margin-left: auto; }
+/* Just above the phone layout the header cannot hold every link beside the
+   account controls: the pages about the site step back to the footer. */
+@media (min-width: 861px) and (max-width: 1040px) {
+  .desktop-nav > a.nav-secondary { display: none; }
+}
 /* The site's own repository: GitHub's mark and, quietly, its stars. */
 .source-link {
   align-items: center; border-radius: 8px; color: light-dark(#52525b, #bcbcc5); display: inline-flex; font-size: 14px;
@@ -2076,15 +2252,16 @@ footer .theme-row[aria-checked="true"] .theme-switch::after { transform: transla
   align-items: center; background: light-dark(#fff, #1f1f1f); border: 1px solid var(--dx-line); border-radius: 12px; display: flex;
   gap: 12px; padding: 12px 14px;
 }
-.oss-record-mark {
-  align-items: center; background: var(--dx-soft); border: 1px solid var(--dx-line); border-radius: 8px;
-  color: var(--dx-text); display: flex; flex: none; font-size: 13px; font-weight: 650; height: 32px;
-  justify-content: center; width: 32px;
-}
+.oss-record-icon { align-items: center; align-self: flex-start; border-radius: 8px; display: flex; flex: none; height: 30px; justify-content: center; width: 30px; }
+.oss-record-icon svg { fill: none; height: 16px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; width: 16px; }
 .oss-record-copy { align-items: center; display: flex; flex: 1; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
 .oss-record-copy a { color: var(--dx-ink); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .oss-record-copy a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .oss-record-owner { color: var(--dx-muted); font-weight: 400; }
+/* A listed repo's card in brief, under its name. */
+.oss-record-detail { display: grid; flex-basis: 100%; gap: 6px; min-width: 0; }
+.oss-record-desc { -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--dx-muted); display: -webkit-box; font-size: 12.5px; line-height: 1.45; overflow: hidden; }
+.oss-record-meta { align-items: center; color: var(--dx-muted); display: flex; flex-wrap: wrap; font-size: 12px; gap: 4px 12px; }
 .oss-record-relation { border-radius: 99px; font-size: 11px; font-weight: 650; padding: 2px 8px; }
 .oss-record-contributor { background: light-dark(#ecfdf3, #131d17); color: light-dark(#047857, #6dbe9d); }
 .oss-record-maintainer { background: light-dark(#eef2ff, #15171d); color: light-dark(#4338ca, #97a2fb); }
@@ -2257,6 +2434,42 @@ footer .theme-row[aria-checked="true"] .theme-switch::after { transform: transla
 .pf-section-head { align-items: center; display: flex; gap: 12px; justify-content: space-between; margin-bottom: 12px; }
 .pf-section-head h2 { color: var(--dx-ink); font-size: 17px; font-weight: 650; letter-spacing: -.02em; margin: 0; }
 .pf-section-head > a { color: var(--dx-muted); font-size: 13px; font-weight: 600; }
+.pf-count { color: var(--dx-muted); font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 500; margin-left: 4px; }
+/* The GitHub summary: one row a pull request or a repository. */
+.gh-rows { border: 1px solid var(--dx-line); border-radius: 12px; list-style: none; margin: 0; overflow: hidden; padding: 0; }
+.gh-rows li + li { border-top: 1px solid var(--dx-line); }
+.gh-row {
+  color: inherit; display: grid; gap: 2px 12px; grid-template-columns: minmax(0, 1fr) auto; padding: 11px 14px; text-decoration: none;
+}
+.gh-row:hover { background: light-dark(#fafafa, #232323); }
+.gh-row-repo { color: var(--dx-muted); font-size: 12.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-row-title { color: var(--dx-ink); font-size: 14px; font-weight: 550; grid-column: 1; line-height: 1.4; min-width: 0; }
+.gh-row-meta { color: var(--dx-muted); font-size: 12px; font-variant-numeric: tabular-nums; grid-column: 2; grid-row: 1; text-align: right; white-space: nowrap; }
+/* Where their merged PRs landed: a box per repo, its owner's picture and the count. */
+.gh-merged-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); list-style: none; margin: 0; padding: 0; }
+.gh-merged-grid a {
+  border: 1px solid var(--dx-line); border-radius: 12px; color: inherit; display: flex; flex-direction: column; gap: 10px; height: 100%;
+  padding: 12px 14px; text-decoration: none;
+}
+.gh-merged-grid a:hover { border-color: light-dark(#a1a1aa, #52525b); }
+.gh-merged-repo { align-items: center; display: flex; gap: 10px; min-width: 0; }
+.gh-merged-repo img { border-radius: 7px; flex: none; }
+.gh-merged-repo > span { display: grid; min-width: 0; }
+.gh-merged-repo small { color: var(--dx-muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-merged-repo strong { color: var(--dx-ink); font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-merged-count { color: var(--dx-muted); font-size: 12px; }
+.gh-merged-count strong { color: light-dark(#8250df, #b392f0); font-size: 20px; font-variant-numeric: tabular-nums; font-weight: 700; margin-right: 2px; }
+.gh-merged-meta { color: var(--dx-muted); display: flex; flex-wrap: wrap; font-size: 11.5px; gap: 4px 10px; margin-top: auto; }
+.gh-merged-with { align-items: center; color: var(--dx-muted); display: flex; font-size: 11.5px; gap: 6px; min-width: 0; }
+.gh-merged-faces { display: flex; flex: none; }
+.gh-merged-faces img { border: 2px solid var(--paper); border-radius: 50%; }
+.gh-merged-faces img + img { margin-left: -6px; }
+.gh-row-repo img { border-radius: 4px; display: inline-block; margin-right: 6px; vertical-align: -3px; }
+.gh-draft { border: 1px solid var(--dx-line); border-radius: 999px; font-size: 11px; margin-right: 6px; padding: 0 6px; }
+.gh-merged-note { margin: -4px 0 10px; }
+@media (max-width: 640px) {
+  .pf-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .pf-section-head > a:hover { color: var(--dx-ink); }
 .pf-trail-modes { background: var(--dx-soft); border-radius: 8px; display: flex; gap: 2px; padding: 2px; }
 .pf-trail-modes a { border-radius: 6px; color: var(--dx-muted); font-size: 12px; font-weight: 600; padding: 4px 10px; }
@@ -2271,13 +2484,15 @@ footer .theme-row[aria-checked="true"] .theme-switch::after { transform: transla
    button. Activity has no button, so the numbers sit beside the title and
    sentence instead of on a row of their own. */
 @media (min-width: 901px) {
-  .dx-head.ax-head h1, .dx-head.ax-head p { grid-column: 1; }
-  .dx-head.ax-head .dx-head-stats { grid-column: 2; grid-row: 1 / span 2; margin-top: 0; }
+  .dx-head.ax-head h1, .dx-head.ax-head p, .dx-head.ax-head .ax-head-actions { grid-column: 1; }
+  .dx-head.ax-head .dx-head-stats { grid-column: 2; grid-row: 1 / span 3; margin-top: 0; }
+}
+@media (min-width: 901px) {
+  .ax-head-line { display: block; }
 }
 .ax-head-link { color: var(--dx-ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--dx-line); text-underline-offset: 3px; }
 .ax-head-link:hover { text-decoration-color: currentColor; }
 .ax-avatar { border-radius: 50%; flex: none; }
-.ax-facet-avatar { border-radius: 4px; flex: none; }
 .ax-pr-icon { fill: none; flex: none; height: 16px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; width: 16px; }
 .ax-pr-icon.is-merged { color: light-dark(#8250df, #b392f0); }
 .ax-pr-icon.is-open { color: light-dark(#1a7f37, #57ab5a); }
@@ -2355,7 +2570,9 @@ footer .theme-row[aria-checked="true"] .theme-switch::after { transform: transla
 .reaction-pill:hover, .reaction-add:hover { border-color: var(--dx-line); }
 .reaction-pill.is-mine { background: light-dark(#ddf4ff, #12263b); border-color: light-dark(#54aeff, #2f6fb0); color: light-dark(#0969da, #79b8ff); }
 .reaction-count { font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 650; }
-.reaction-add { color: var(--dx-muted); padding: 0 7px; }
+/* Quiet until used: no pill around the button on a PR nobody has reacted to. */
+.reaction-add { background: transparent; color: var(--dx-muted); opacity: .6; padding: 0 7px; }
+.reaction-add:hover, .reaction-add[aria-expanded="true"] { background: var(--dx-soft); opacity: 1; }
 .reaction-add svg { fill: none; height: 16px; stroke: currentColor; stroke-linecap: round; stroke-width: 1.7; width: 16px; }
 .reaction-add-wrap { position: relative; }
 .reaction-picker {
@@ -2380,7 +2597,38 @@ footer .theme-row[aria-checked="true"] .theme-switch::after { transform: transla
 .new-product-form .help-error { margin-top: 12px; }
 .oss-record-verified { background: light-dark(#e8f5ec, #1d2f23); border-radius: 999px; color: light-dark(#1a7f37, #57ab5a); font-size: 11.5px; font-weight: 650; margin-left: 6px; padding: 1px 7px; }
 .gh-form-actions { align-items: center; display: flex; gap: 12px; margin-top: 14px; }
+/* Repos kept off the site, under the GitHub form: hairline rows, a text button each. */
+.gh-hidden { margin: -8px 0 28px; }
+.gh-hidden h3 { font-size: 14px; font-weight: 650; margin: 0 0 4px; }
+.gh-hidden .hint { margin: 4px 0 8px; }
+.gh-hidden-list { list-style: none; margin: 0 0 10px; padding: 0; }
+.gh-hidden-list li { align-items: center; border-bottom: 1px solid var(--dx-line); display: flex; font-size: 13.5px; gap: 12px; justify-content: space-between; padding: 6px 0; }
+.gh-hidden-list form { margin: 0; }
+.gh-hidden-add { display: flex; gap: 8px; margin: 0 0 12px; }
+.gh-hidden-add input { flex: 1; min-width: 0; }
 .gh-form-saved { color: light-dark(#1a7f37, #57ab5a); font-size: 13.5px; font-weight: 600; }
+/* /account/profile: the linked GitHub account, or the way to link one. */
+.gh-linked { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 14px; }
+.gh-linked img { border-radius: 50%; }
+.gh-linked a { color: inherit; font-weight: 650; }
+.gh-linked-mark {
+  background: light-dark(#e8f5ec, #1d2f23); border-radius: 999px; color: light-dark(#1a7f37, #57ab5a);
+  font-size: 12px; font-weight: 650; padding: 2px 8px;
+}
+.gh-link { margin: 4px 0 14px; }
+.gh-link .google-auth-button { max-width: 320px; min-height: 46px; }
+.gh-link .hint { margin-top: 8px; }
+.gh-link-note {
+  background: light-dark(#fff8e6, #2d2614); border: 1px solid light-dark(#f0d68a, #5c4b1f); border-radius: 10px;
+  font-size: 13.5px; line-height: 1.55; margin: 0 0 12px; padding: 10px 14px;
+}
+.username-form { margin-bottom: 28px; }
+.username-suggest {
+  background: none; border: 0; color: var(--ink-soft); cursor: pointer;
+  font: inherit; margin: 2px 0 0; padding: 0;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.username-suggest:hover { color: var(--ink); }
 
 .pf-products { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .pf-products li {
@@ -2400,12 +2648,24 @@ footer .theme-row[aria-checked="true"] .theme-switch::after { transform: transla
   letter-spacing: .06em; margin: 0 0 10px; text-transform: uppercase;
 }
 .pf-bio { color: var(--dx-text); font-size: 14px; line-height: 1.6; margin: 0; white-space: pre-line; }
+.pf-readme { color: var(--dx-text); display: grid; font-size: 14px; gap: 8px; line-height: 1.6; overflow-wrap: anywhere; }
+.pf-readme h3 { font-size: 14px; font-weight: 650; margin: 6px 0 0; }
+.pf-readme h3:first-child { margin-top: 0; }
+.pf-readme p, .pf-readme ul { margin: 0; }
+.pf-readme ul { display: grid; gap: 4px; list-style: disc; padding-left: 18px; }
+.pf-readme li::marker { color: var(--dx-faint); }
+.pf-readme a { color: var(--dx-text); font-weight: 600; text-decoration: underline; text-decoration-color: var(--dx-faint); text-underline-offset: 2px; }
+.pf-readme a:hover { text-decoration-color: currentColor; }
+.pf-readme code { background: var(--dx-soft); border-radius: 4px; font-size: 12px; padding: 1px 4px; }
+.pf-readme .pf-readme-source { color: var(--dx-muted); font-size: 12px; font-weight: 400; text-decoration: none; }
 .pf-tags { display: flex; flex-wrap: wrap; gap: 5px; list-style: none; margin: 0; padding: 0; }
 .pf-tags li { background: var(--dx-soft); border-radius: 6px; color: var(--dx-text); font-size: 12px; padding: 3px 8px; }
 
 @media (max-width: 900px) {
   .pf-layout { grid-template-columns: minmax(0, 1fr); }
   .pf-side { order: -1; }
+  /* With GitHub's summary the work leads; the bio and skills follow it. */
+  .pf-layout.has-github .pf-side { order: 0; }
 }
 @media (max-width: 640px) {
   .pf-head { flex-wrap: wrap; gap: 14px; }
@@ -2415,6 +2675,10 @@ footer .theme-row[aria-checked="true"] .theme-switch::after { transform: transla
   .pf-head-actions { width: 100%; }
   .pf-stats { gap: 10px 24px; }
   .oss-record li { flex-wrap: wrap; }
+  /* The name on a line of its own, the badges under it, the same on every
+     row — and a short name no longer pulls its badge up beside it. */
+  .oss-record-copy a { flex-basis: 100%; }
+  /* A merged repo's name gets the row; its stars and date go under it. */
   .oss-add-row { flex-wrap: wrap; }
   .oss-add-row input { flex-basis: 100%; }
   .oss-add-row select, .oss-add-row button { flex: 1; }
@@ -2622,7 +2886,96 @@ a.ab-card:hover h3 { color: light-dark(#0969da, #4493f8); }
 .ab-faq details:first-child summary { border-radius: 8px 8px 0 0; }
 .ab-faq details:last-child:not([open]) summary { border-radius: 0 0 8px 8px; }
 .ab-faq p { color: var(--dx-muted); font-size: 13.5px; line-height: 1.65; margin: 0; padding: 0 14px 14px; }
+/* /leaderboard, before it exists: the about page's frame, with a badge. */
+.lb-page h1 { align-items: center; display: flex; gap: 10px; }
+/* A flex item of the body: without this the board's widest row would widen the page on a phone. */
+.lb-page { min-width: 0; }
+.lb-season { color: light-dark(#8250df, #b392f0); font-size: 13px; font-weight: 650; margin: 6px 0 0; }
+.lb-note { color: var(--dx-muted); font-size: 13px; line-height: 1.6; margin: 10px 0 0; }
+.lb-note a { color: light-dark(#0969da, #4493f8); font-weight: 600; }
+
+.lb-you { --tone: light-dark(#8250df, #b392f0); border: 1px solid var(--dx-line); border-radius: 12px; display: grid; gap: 12px; justify-items: start; margin-top: 24px; padding: 18px 20px; }
+.lb-you.is-done { --tone: light-dark(#1a7f37, #3fb950); }
+.lb-you h2 { font-size: 15px; font-weight: 650; margin: 0; }
+.lb-you p { color: var(--dx-text); font-size: 14px; line-height: 1.6; margin: 0; }
+.lb-you .ax-weeks { gap: 6px; }
+.lb-you .ax-weeks i { height: 12px; width: 12px; }
+.lb-you-stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
+.lb-you-stats dt { color: var(--dx-muted); font-size: 12px; }
+.lb-you-stats dd { color: var(--dx-ink); font-size: 18px; font-weight: 700; margin: 2px 0 0; }
+
+.lb-milestones { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); list-style: none; margin: 14px 0 0; padding: 0; }
+.lb-milestones li { border: 1px solid var(--dx-line); border-radius: 10px; display: grid; gap: 2px; padding: 12px 14px; }
+.lb-milestones li.is-mine { border-color: light-dark(#8250df, #b392f0); }
+.lb-milestones strong { color: var(--dx-ink); font-size: 14px; }
+.lb-milestones span { color: var(--dx-text); font-size: 13px; }
+.lb-milestones small { color: var(--dx-muted); font-size: 12px; margin-top: 4px; }
+.lb-milestone-icon { font-size: 22px; line-height: 1.2; }
+
+/* A member's season on their profile: /leaderboard's own card. */
+.pf-season { margin-top: 0; }
+.pf-section + .pf-season { margin-top: 32px; }
+.pf-season + * { margin-top: 32px; }
+.pf-season .pf-section-head { justify-self: stretch; margin: 0; }
+.pf-season .pf-section-head h2 { align-items: center; display: flex; gap: 6px; }
+.pf-season-rank { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.pf-season-rank strong { color: var(--tone); font-size: 18px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.pf-season-rank span { color: var(--dx-muted); font-size: 12.5px; }
+.pf-badges { color: var(--dx-muted); display: flex; flex-wrap: wrap; font-size: 13px; gap: 4px 16px; list-style: none; margin: 0; padding: 0; }
+.pf-badges li:not(.is-earned) span { filter: grayscale(1); opacity: .5; }
+.pf-badges li.is-earned { color: var(--dx-ink); }
+.pf-badges li.is-earned small { color: light-dark(#1a7f37, #3fb950); font-weight: 650; }
+.pf-season-own { align-items: center; color: var(--dx-muted); display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; }
+.pf-season-own .ax-weeks.is-slim { --tone: light-dark(#1a7f37, #57ab5a); margin-top: 0; }
+.lb-you p.pf-season-own, .lb-you p.pf-season-next { color: var(--dx-muted); font-size: 13px; }
+.pf-season-next a { color: light-dark(#0969da, #4493f8); font-weight: 600; }
+
+.lb-board-head { display: grid; gap: 10px; }
+.lb-board-head h2 { margin: 0; }
+/* BoardFilters (board-filters.tsx): one row of pills that open a native
+   picker, the chosen-but-not-default ones in purple, and the PR button. */
+.lb-filters { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; }
+.lb-filters label { display: block; margin: 0; }
+.lb-filter {
+  appearance: none; background: transparent no-repeat right 10px center / 12px 12px; border: 1px solid var(--dx-line); border-radius: 99px; color: var(--dx-text);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  cursor: pointer; field-sizing: content; font: inherit; font-size: 13px; font-weight: 600; height: 32px; margin: 0; padding: 0 30px 0 12px; width: auto;
+}
+.lb-filter:hover { border-color: var(--dx-muted); }
+.lb-filter:focus-visible { box-shadow: 0 0 0 2px light-dark(rgba(130, 80, 223, .35), rgba(179, 146, 240, .35)); outline: none; }
+.lb-filter.is-set { border-color: light-dark(#8250df, #b392f0); color: light-dark(#8250df, #b392f0); }
+.lb-filter option { color: var(--dx-ink); }
+.lb-filters noscript button { background: var(--dx-soft); border: 0; border-radius: 99px; font-size: 12.5px; height: 32px; padding: 0 12px; }
+.lb-week strong { color: var(--dx-ink); }
+.lb-table { margin-top: 12px; max-width: 100%; overflow-x: auto; }
+.lb-board { border-collapse: collapse; font-size: 13.5px; width: 100%; }
+.lb-board th { border-bottom: 1px solid var(--dx-line); color: var(--dx-muted); font-size: 12px; font-weight: 600; padding: 8px 10px; text-align: left; }
+.lb-board td { border-bottom: 1px solid var(--dx-line); color: var(--dx-text); padding: 10px; vertical-align: middle; white-space: nowrap; }
+.lb-board td:nth-child(2) { align-items: center; color: var(--dx-ink); display: flex; font-weight: 600; gap: 10px; }
+.lb-board tr.is-mine td { background: light-dark(rgba(130, 80, 223, .07), rgba(179, 146, 240, .1)); }
+.lb-board .lb-points { color: light-dark(#8250df, #b392f0); font-weight: 700; }
+.lb-who { display: grid; gap: 4px; min-width: 0; }
+.lb-who a { color: inherit; }
+.lb-who a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.lb-board .ax-weeks { --tone: light-dark(#8250df, #b392f0); }
+.lb-avatar { border-radius: 50%; flex: none; height: 28px; width: 28px; }
+/* A place on a board, here and on the home page's: the top three on a coin of
+   gold, silver or bronze, the rest a plain number the same size. */
+.board-rank {
+  align-items: center; border-radius: 50%; color: var(--dx-muted); display: inline-flex; font-size: 12px;
+  font-variant-numeric: tabular-nums; font-weight: 700; height: 22px; justify-content: center; min-width: 22px;
+}
+.board-rank.is-1 { background: light-dark(#fdf0c2, #45360f); color: light-dark(#9a6700, #f5cf5b); }
+.board-rank.is-2 { background: light-dark(#e9e9ec, #36363b); color: light-dark(#52525b, #d4d4d8); }
+.board-rank.is-3 { background: light-dark(#fbe3d3, #45281a); color: light-dark(#9c4a1a, #f0a878); }
+@media (max-width: 640px) {
+  .lb-board .lb-wide { display: none; }
+  .lb-board td:nth-child(2) { white-space: normal; }
+  .lb-board th, .lb-board td { padding-left: 6px; padding-right: 6px; }
+}
 .ab-cta { background: var(--tone-soft); border-radius: 10px; margin-top: 40px; padding: 22px 24px; }
+/* A call to action that opens the page, under its intro, rather than closing it. */
+.ab-cta.ab-cta-top { margin-top: 24px; }
 .ab-cta h2 { font-size: 17px; font-weight: 650; letter-spacing: -.015em; margin: 0 0 4px; }
 .ab-cta p { color: var(--dx-text); font-size: 14px; line-height: 1.6; margin: 0; }
 .ab-cta-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
@@ -2682,3 +3035,88 @@ a.ab-card:hover h3 { color: light-dark(#0969da, #4493f8); }
 .level-track li.is-current { color: var(--ink); }
 .level-track li.is-current::before { background: var(--ink); border-color: var(--ink); }
 .stage-buttons button { border-color: var(--line-2); }
+
+/* ThisWeek (week-dots.tsx) on the activity page's board: who already has a PR this week. */
+.ax-board-week { color: var(--dx-muted); font-size: 12px; line-height: 1.45; margin: 10px 4px 0; }
+.ax-board-week strong { color: var(--dx-ink); font-weight: 600; }
+.ax-board-week a { color: var(--tone); font-weight: 600; }
+
+/* BoardInfo (week-dots.tsx): an ⓘ whose explanation opens on hover or focus,
+   under the heading it sits in and never wider than it, so a phone never
+   scrolls sideways. */
+:has(> .info-tip) { position: relative; }
+.info-tip { display: inline-block; vertical-align: middle; }
+.info-tip-icon {
+  align-items: center; background: none; border: 1.5px solid currentColor; border-radius: 50%; color: inherit; cursor: help; display: inline-flex;
+  font: italic 700 10px/1 Georgia, serif; height: 16px; justify-content: center; margin: 0 0 0 4px; opacity: .75; padding: 0; width: 16px;
+}
+.info-tip-icon:hover, .info-tip-icon:focus-visible { opacity: 1; }
+.info-tip-body {
+  background: light-dark(#fff, #26262a); border: 1px solid var(--dx-line); border-radius: 8px; box-shadow: 0 8px 24px light-dark(rgba(0, 0, 0, .18), rgba(0, 0, 0, .36));
+  color: var(--dx-text); font-size: 12.5px; font-weight: 400; letter-spacing: normal; line-height: 1.5; opacity: 0; padding: 10px 12px;
+  left: 0; pointer-events: none; position: absolute; text-align: left; top: calc(100% + 6px); transition: opacity .12s;
+  visibility: hidden; white-space: normal; width: min(300px, calc(100vw - 32px)); z-index: 30;
+}
+.info-tip-body b { color: var(--dx-ink); font-weight: 650; }
+.info-tip-more { color: light-dark(#0969da, #4493f8); display: inline-block; font-weight: 600; margin-top: 4px; }
+.info-tip:hover .info-tip-body, .info-tip:focus-within .info-tip-body { opacity: 1; pointer-events: auto; visibility: visible; }
+
+/* ------------------------------------------------------- a repo's page
+   The directory's card grown into a page: the name, where it stands on PRs
+   and what it is, the way to start; then what only this site knows — the
+   members merged there and their latest pull requests. */
+.rp-page { max-width: none; }
+.rp-head { align-items: flex-start; border-bottom: 1px solid var(--dx-line); display: flex; gap: 18px; padding-bottom: 26px; }
+.rp-avatar { border: 1px solid var(--dx-line); border-radius: 12px; flex: none; height: 56px; width: 56px; }
+.rp-head-copy { flex: 1; min-width: 0; }
+.rp-head h1 { color: var(--dx-ink); font-size: clamp(24px, 3.4vw, 32px); font-weight: 700; letter-spacing: -.03em; line-height: 1.15; margin: 0; overflow-wrap: anywhere; }
+.rp-owner { color: var(--dx-muted); font-weight: 500; }
+.rp-flags { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.rp-scope {
+  border: 1px solid var(--dx-line); border-radius: 99px; color: var(--dx-text); font-size: 11.5px; font-weight: 600; line-height: 1;
+  padding: 4px 9px;
+}
+.rp-pick { align-items: center; color: light-dark(#b45309, #f59e0b); display: inline-flex; font-size: 12px; font-weight: 600; gap: 4px; }
+.rp-pick .dx-badge-icon { fill: currentColor; height: 14px; stroke: none; width: 14px; }
+.rp-desc { color: var(--dx-text); font-size: 15.5px; line-height: 1.55; margin: 14px 0 0; max-width: 72ch; }
+.rp-head .dx-shared { font-size: 13px; margin-top: 8px; }
+.rp-head .dx-meta { font-size: 13px; }
+.rp-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.rp-actions .dx-action { height: 34px; padding: 0 14px; }
+/* The profile's share button sits on its dark hero; here it is one more
+   quiet button in the row. */
+.rp-share .profile-share-control { position: static; }
+.rp-share .profile-share-button {
+  background: transparent; border: 1px solid var(--dx-line); color: var(--dx-text); height: 34px; width: 34px;
+}
+.rp-share .profile-share-button:hover { background: var(--dx-soft); border-color: var(--dx-line); color: var(--dx-ink); }
+.rp-why { border-bottom: 1px solid var(--dx-line); padding: 18px 0 22px; }
+.rp-why .dx-badges, .rp-why .dx-tags { margin-top: 0; }
+.rp-why > * + * { margin-top: 10px; }
+.rp-why-quote {
+  border-left: 3px solid var(--dx-line); color: var(--dx-text); font-size: 14.5px; font-style: italic; line-height: 1.55; margin: 0 0 14px;
+  max-width: 72ch; padding-left: 14px;
+}
+.rp-community { align-items: start; display: grid; gap: 40px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); margin-top: 30px; }
+.rp-community .pf-section + .pf-section { margin-top: 0; }
+.rp-subhead { color: var(--dx-muted); font-size: 12.5px; font-weight: 600; margin: 18px 0 8px; }
+.rp-people { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.rp-people a {
+  align-items: center; border: 1px solid var(--dx-line); border-radius: 99px; color: var(--dx-ink); display: inline-flex; font-size: 13px;
+  font-weight: 600; gap: 8px; padding: 3px 12px 3px 3px;
+}
+.rp-people a:hover { background: var(--dx-soft); }
+.rp-people img { border-radius: 50%; height: 26px; width: 26px; }
+.rp-pr-who { align-items: center; display: inline-flex; gap: 6px; }
+.rp-pr-who svg { flex: none; height: 13px; width: 13px; }
+.rp-pr-who img { border-radius: 50%; flex: none; }
+@media (max-width: 860px) {
+  .rp-community { gap: 28px; grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .rp-head { gap: 14px; }
+  .rp-avatar { height: 44px; width: 44px; }
+  /* On a phone the PR's when goes under its title, as on a profile. */
+  .rp-prs .gh-row { grid-template-columns: minmax(0, 1fr); }
+  .rp-prs .gh-row-meta { grid-column: 1; grid-row: auto; text-align: left; }
+}

@@ -4,7 +4,10 @@ import { redirect } from "next/navigation";
 import { SiteFooter, SiteHeader } from "../../components/shell";
 import { ProfileForm, type EditableProfile } from "../../components/profile-form";
 import { GitHubForm } from "../../components/github-form";
-import { listOssContributionsOf, listPeople } from "../../lib/data";
+import { HiddenRepos } from "../../components/hidden-repos";
+import { UsernameForm } from "../../components/username-form";
+import { validateUsername } from "../../lib/profile";
+import { isUsernameFreeFor, listGitHubRepoChoices, listOssContributionsOf, listPeople } from "../../lib/data";
 import { OssAddForm, OssRecordEmpty, OssRecordList } from "../../components/oss-record";
 import { githubHandle } from "../../lib/oss";
 import { termSuggestions } from "../../lib/people";
@@ -34,7 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function EditProfilePage({
   searchParams,
 }: {
-  searchParams: Promise<{ returnTo?: string | string[]; oss?: string | string[] }>;
+  searchParams: Promise<{ returnTo?: string | string[]; oss?: string | string[]; "github-link"?: string | string[] }>;
 }) {
   const [viewer, locale] = await Promise.all([currentViewer(), currentLocale()]);
   if (!viewer) redirect(signInPath("/account/profile"));
@@ -46,12 +49,25 @@ export default async function EditProfilePage({
 
   // Suggestions only. If the directory cannot be read the form still works —
   // it just stops proposing the words other people already use.
-  const [people, records] = await Promise.all([
+  const [people, records, repoChoices] = await Promise.all([
     readPublicly("profile term suggestions", () => listPeople(400), []),
     readPublicly("open source record in the editor", () => listOssContributionsOf(viewer.id), []),
+    viewer.githubActivityShown ? listGitHubRepoChoices(viewer.id) : null,
   ]);
   const ossStatus = typeof query.oss === "string" ? query.oss : "";
+  const linkFailure = (["failed", "taken", "same"] as const).find((reason) => reason === query["github-link"]);
   const handle = githubHandle(viewer.github);
+  // The account on the profile is the one linked through OAuth, so its handle
+  // is verified and may be offered as the username — when it is a legal name
+  // nobody else holds or has left behind. The database has the last word.
+  const handleCheck = handle ? validateUsername(handle) : null;
+  const candidate = handleCheck && "username" in handleCheck ? handleCheck.username : "";
+  const free =
+    candidate && candidate !== viewer.username
+      ? (await readPublicly("username suggestion", () => isUsernameFreeFor(candidate, viewer.id), false)).value
+      : false;
+  const usernameSuggestion = free ? candidate : undefined;
+  const editable = toEditable(viewer);
 
   return (
     <>
@@ -68,7 +84,17 @@ export default async function EditProfilePage({
         {/* First, because the directory is built from it: the badge faces,
             the evidence links and the Activity page all read this account.
             A form of its own, since the open source record below is one too. */}
-        <GitHubForm github={handle ? `https://github.com/${handle}` : viewer.github} shown={viewer.githubActivityShown} />
+        <GitHubForm
+          handle={handle}
+          typed={githubHandle(viewer.githubTyped) || viewer.githubTyped}
+          shown={viewer.githubActivityShown}
+          linkFailure={linkFailure}
+        />
+        {handle && repoChoices ? <HiddenRepos hidden={repoChoices.hidden} shown={repoChoices.shown} locale={locale} /> : null}
+
+        {/* Next to GitHub on purpose: the two are a member's identity here, and
+            the handle above is offered as the profile URL below. */}
+        <UsernameForm username={viewer.username} suggestion={usernameSuggestion} />
 
         {/* Second: every repo listed here becomes a badge on that repo's row. */}
         <section id="open-source" className="oss-editor tone-done" aria-labelledby="oss-editor-title">
@@ -96,15 +122,14 @@ export default async function EditProfilePage({
           <OssAddForm status={ossStatus} locale={locale} />
         </section>
 
+        {/* Remounted with a new key when the stored profile changes: the
+            form's useActionState keeps the values it was mounted with. */}
         <ProfileForm
-          profile={toEditable(viewer)}
+          key={JSON.stringify(editable)}
+          profile={editable}
           skillSuggestions={termSuggestions(people.value, "skills")}
           returnTo={returnTo}
         />
-
-        <p className="hint">
-          {tx(locale, "URL profilmu—", "Your profile URL—")}<code>/u/{viewer.username}</code>{tx(locale, "—dibuat oleh sistem dan tidak dapat diubah di sini. Ubah kata sandimu di ", "—is created by the system and cannot be changed here. Change your password on the ")}<Link href="/account/password">{tx(locale, "halaman kata sandi", "password page")}</Link>.
-        </p>
       </main>
 
       <SiteFooter />

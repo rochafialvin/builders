@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 import { builderUrl, isOss, ossUrl } from "./app/lib/site";
+import { GUEST_CACHE, GUEST_CACHED_PATHS, guestVary, sessionCookieNames } from "./app/lib/cdn-cache";
+
+const sessionCookies = sessionCookieNames(process.env.NEXT_PUBLIC_SUPABASE_URL);
 
 /**
  * Cache Components is what makes this site cheap to serve.
@@ -19,6 +22,20 @@ import { builderUrl, isOss, ossUrl } from "./app/lib/site";
  */
 const nextConfig: NextConfig = {
   cacheComponents: true,
+  // A guest's public page from Netlify's CDN rather than the server; see
+  // app/lib/cdn-cache.ts. Without the session cookie's name there is no way
+  // to keep members off a guest's copy, so nothing is cached then.
+  async headers() {
+    if (sessionCookies.length === 0) return [];
+    return GUEST_CACHED_PATHS.map((source) => ({
+      source,
+      missing: sessionCookies.map((key) => ({ type: "cookie" as const, key })),
+      headers: [
+        { key: "Netlify-CDN-Cache-Control", value: GUEST_CACHE },
+        { key: "Netlify-Vary", value: guestVary(sessionCookies) },
+      ],
+    }));
+  },
   async redirects() {
     return [
       // The open source site has none of the work of running a product: its
@@ -46,6 +63,8 @@ const nextConfig: NextConfig = {
             // And the builders site has none of GitHub's: the repo catalogue
             // lives on the open source site. Its /activity is a product feed.
             { source: "/recommend", destination: ossUrl("/recommend"), permanent: false },
+            // The leaderboard is open source contributions, the open source site's.
+            { source: "/leaderboard", destination: ossUrl("/leaderboard"), permanent: false },
             // Its "add a project" is listing a product; its walk-through is the roles one.
             { source: "/submit", destination: "/new", permanent: false },
             { source: "/how-it-works/roles", destination: "/how-it-works", permanent: false },
@@ -86,11 +105,18 @@ const nextConfig: NextConfig = {
     // revalidatePath in app/actions.ts), so it only ever repeats a page
     // nothing has changed since.
     staleTimes: { dynamic: 120 },
-    // The stylesheet arrives inside the HTML instead of as a second request
-    // the browser must wait for before it paints anything. On a first visit
-    // over a high-latency mobile connection that request was ~0.4 s of blank
-    // screen; the cost is ~30 KB (compressed) more HTML on each page load.
-    inlineCss: true,
+    // No `inlineCss`: with it on, the ~160 KB stylesheet was written into the
+    // HTML once as a <style> and again, three times, in the React payload —
+    // 737 KB of HTML on the home page against 80 KB without it. Mobile
+    // Lighthouse (simulated slow 4G): 91 -> 96, FCP 1.3 s -> 1.1 s, TBT
+    // 130 ms -> 45 ms. The separate CSS request is cached after the first visit.
+    // Turbopack's filesystem cache (on by default since 16.3) kept serving a
+    // stale globals.css: Netlify restores `.next/cache` between deploys, and a
+    // build shipped new HTML with an old stylesheet — the leaderboard and
+    // footer unstyled in production. The same happened to `next dev` after
+    // switching branches. Off for both: a slower build that is always right.
+    turbopackFileSystemCacheForBuild: false,
+    turbopackFileSystemCacheForDev: false,
   },
   cacheLife: {
     // The board, the people directory, a project page. Someone posting a
@@ -110,6 +136,13 @@ const nextConfig: NextConfig = {
     facets: {
       stale: 300,
       revalidate: 900,
+      expire: 86400,
+    },
+    // A member's work as GitHub tells it, on their profile: read from GitHub's
+    // API with the site's token, so asked for at most hourly per member.
+    github: {
+      stale: 300,
+      revalidate: 3600,
       expire: 86400,
     },
     // A person's public trail. Append-only in practice, and never urgent.

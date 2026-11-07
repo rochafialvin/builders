@@ -6,6 +6,7 @@ import { isOss, site } from "./lib/site";
 /** The icon files in public/ for this build: `oss-favicon.svg` and so on for the open source site. */
 const iconPrefix = isOss ? "oss-" : "";
 import { LanguageProvider } from "./components/language-provider";
+import { SiteBottomNav } from "./components/shell";
 import { currentLocale } from "./lib/locale-server";
 import { cookies } from "next/headers";
 import { isTheme, THEME_COOKIE } from "./lib/theme";
@@ -69,7 +70,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang={locale} data-theme={theme}>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <LanguageProvider locale={locale}>{children}</LanguageProvider>
+        <LanguageProvider locale={locale}>
+          {children}
+          {/* Here rather than in each page's header, so it stays put while
+              pages change under it. */}
+          <SiteBottomNav />
+        </LanguageProvider>
       </body>
     </html>
   );

@@ -1,0 +1,200 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createServer } from "node:net";
+import test, { after, before } from "node:test";
+
+import nextEnv from "@next/env";
+
+/**
+ * Opens the built site the way a visitor does: `next start` on the output of
+ * the last `next build`, with no Supabase, so the pages read the seed data.
+ * Which site it checks follows NEXT_PUBLIC_SITE, as the build did, so run it
+ * once after each build:
+ *
+ *   npm test                                                    # builders
+ *   NEXT_PUBLIC_SITE=oss npx next build && \
+ *   NEXT_PUBLIC_SITE=oss npm run test:rendered                  # oss
+ *
+ * Pure-logic tests cannot see a page that throws for a guest or a redirect
+ * between the two sites that points the wrong way; this can.
+ */
+
+// Read the environment the way `next build` does, so a NEXT_PUBLIC_SITE set in
+// .env.local picks the same site here as it did for the build.
+nextEnv.loadEnvConfig(process.cwd(), false, { info() {}, error() {} });
+
+const oss = process.env.NEXT_PUBLIC_SITE === "oss";
+
+// `next build` inlines NEXT_PUBLIC_* values, so a build made with a real
+// Supabase in .env.local reads that database whatever `next start` is given,
+// and the seed-only member and project below are not there. Skip rather than
+// fail on such a build; CI builds in seed mode.
+const skip = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? "built against a real Supabase: empty NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, build, then run again"
+  : false;
+const label = oss ? "oss" : "builders";
+
+const BUILDERS_ORIGIN = "https://builders.swegrowth.id";
+const OSS_ORIGIN = "https://oss.swegrowth.id";
+
+// Seed data (app/lib/seed.ts): the one member and a project on the builders site.
+const SEED_USER = "zikrulihsan";
+const SEED_PROJECT = "warung-antre";
+
+// Public pages: 200 and a heading.
+const pages = [
+  "/",
+  "/directory",
+  "/how-it-works",
+  "/about",
+  "/privacy",
+  "/feedback",
+  "/community",
+  "/signin",
+  "/forgot-password",
+  "/account/password",
+  "/account/language",
+  `/u/${SEED_USER}`,
+  ...(oss ? ["/recommend", "/leaderboard"] : ["/new", `/projects/${SEED_PROJECT}`]),
+];
+
+// Pages that need an account. A guest gets a 200 whose body carries the
+// redirect to /signin, because it streams in after the status is sent. [path,
+// where the guest is sent].
+const guestOnly = [
+  ["/admin", "/signin?next=%2Fadmin"],
+  ["/account/profile", "/signin?next=%2Faccount%2Fprofile"],
+  ["/get-started", "/signin?next=%2Fget-started"],
+  ["/signup", "/signin"],
+  ...(oss
+    ? []
+    : [
+        ["/inbox", "/signin?next=%2Finbox"],
+        [`/projects/${SEED_PROJECT}/edit`, `/signin?next=%2Fprojects%2F${SEED_PROJECT}%2Fedit`],
+      ]),
+];
+
+// Addresses nothing lives at: still a 200 (the status is sent before the page
+// knows), so the page's title is what says it was not found. [path, title].
+const missing = [
+  ["/u/no-such-member", /person not found/i],
+  ...(oss ? [] : [["/projects/no-such-project", /project not found/i]]),
+];
+
+// [from, where it should land]. A path stays on the site; a full URL leaves it.
+// /activity is the home page now, so it redirects rather than rendering.
+const redirects = [
+  ["/activity", "/"],
+  ["/?sort=new", "/directory?sort=new"],
+  ["/people", "/directory"],
+  ["/orang", "/directory"],
+  ["/mulai", "/get-started"],
+  ["/lupa-password", "/forgot-password"],
+  ["/akun/profil", "/account/profile"],
+  ["/akun/password", "/account/password"],
+  ...(oss
+    ? [
+        ["/new", `${BUILDERS_ORIGIN}/new`],
+        ["/inbox", `${BUILDERS_ORIGIN}/inbox`],
+        [`/projects/${SEED_PROJECT}`, `${BUILDERS_ORIGIN}/projects/${SEED_PROJECT}`],
+        [`/projects/${SEED_PROJECT}/edit`, `${BUILDERS_ORIGIN}/projects/${SEED_PROJECT}/edit`],
+        ["/how-it-works/roles", `${BUILDERS_ORIGIN}/how-it-works`],
+        ["/explore", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/kolaborasi", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/?track=role", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/directory?track=role", `${BUILDERS_ORIGIN}/directory?track=role`],
+        ["/submit", "/recommend"],
+      ]
+    : [
+        ["/recommend", `${OSS_ORIGIN}/recommend`],
+        ["/leaderboard", `${OSS_ORIGIN}/leaderboard`],
+        ["/how-it-works/roles", "/how-it-works"],
+        ["/explore", "/directory?track=role"],
+        ["/kolaborasi", "/directory?track=role"],
+        ["/?track=role", "/directory?track=role"],
+        ["/submit", "/new"],
+      ]),
+];
+
+let server;
+let base;
+let output = "";
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+async function untilReady(url, deadline) {
+  while (Date.now() < deadline) {
+    if (server.exitCode !== null) {
+      throw new Error(`next start exited with ${server.exitCode}\n${output}`);
+    }
+    try {
+      await fetch(url, { redirect: "manual" });
+      return;
+    } catch {
+      await new Promise((done) => setTimeout(done, 250));
+    }
+  }
+  throw new Error(`next start was not ready in time\n${output}`);
+}
+
+before(async () => {
+  if (skip) return;
+  const port = await freePort();
+  base = `http://127.0.0.1:${port}`;
+  server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "-p", String(port), "-H", "127.0.0.1"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const collect = (chunk) => {
+    output = (output + chunk).slice(-4000);
+  };
+  server.stdout.on("data", collect);
+  server.stderr.on("data", collect);
+  await untilReady(`${base}/`, Date.now() + 60_000);
+});
+
+after(() => {
+  server?.kill();
+});
+
+for (const path of pages) {
+  test(`${label}: ${path} renders with a heading`, { skip }, async () => {
+    const response = await fetch(base + path, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /<h1[\s>]/);
+  });
+}
+
+for (const [path, to] of guestOnly) {
+  test(`${label}: ${path} sends a guest to ${to}`, { skip }, async () => {
+    const response = await fetch(base + path, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    // How Next streams a redirect thrown after the status went out; an upgrade
+    // that changes the format breaks this line, not the redirect itself.
+    assert.ok((await response.text()).includes(`NEXT_REDIRECT;replace;${to};307;`));
+  });
+}
+
+for (const [path, title] of missing) {
+  test(`${label}: ${path} says it was not found`, { skip }, async () => {
+    const response = await fetch(base + path, { redirect: "manual" });
+    assert.equal(response.status, 200);
+    assert.match((await response.text()).match(/<title[^>]*>([^<]*)<\/title>/)?.[1] ?? "", title);
+  });
+}
+
+for (const [from, to] of redirects) {
+  test(`${label}: ${from} redirects to ${to}`, { skip }, async () => {
+    const response = await fetch(base + from, { redirect: "manual" });
+    assert.ok([307, 308].includes(response.status), `expected a redirect, got ${response.status}`);
+    assert.equal(response.headers.get("location"), to);
+  });
+}

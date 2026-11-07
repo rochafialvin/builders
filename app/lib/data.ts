@@ -22,7 +22,24 @@ import type { GitHubRepositoryStats } from "./github";
 import type { RepoActivity } from "./directory";
 import { githubHandle, isOssRelation, mergeOssRows, type OssContribution, type OssMember, type OssRelation, type OssRow } from "./oss";
 import type { Lane } from "./feed";
-import { buildGitHubActivity, type ActivityPerson, type GitHubActivityEntry } from "./github-activity";
+import {
+  buildGitHubActivity,
+  ownPullRequestEntries,
+  SUMMARY_DAYS,
+  type ActivityPerson,
+  type GitHubActivityEntry,
+  type PullRequestEntry,
+} from "./github-activity";
+import {
+  buildAuthorQuery,
+  buildProfileQuery,
+  buildPullRequestQuery,
+  organisationsOf,
+  parseProfile,
+  pullRequestRepos,
+  soloReposOf,
+  type GitHubProfile,
+} from "./github-profile";
 import type { ReactionRow } from "./reactions";
 import { FEED_KINDS } from "./product-feed";
 import { availabilityStatus, type AvailabilityStatus } from "./availability";
@@ -48,6 +65,8 @@ export type Person = {
   website: string;
   publicEmail: string;
   github: string;
+  /** GitHub's numeric id of the linked account — 20261103000000_linked_github.sql. */
+  githubId?: number | null;
   linkedin: string;
   x: string;
   resume: string;
@@ -537,6 +556,88 @@ export const getPerson = cache(async (username: string): Promise<Person | null> 
 
   return data ? toPerson(data) : null;
 });
+
+/**
+ * The current username of whoever once used `former`, or null.
+ *
+ * Only called when a profile lookup missed, so it is the slow path and stays
+ * uncached. It resolves through the holder's id rather than the stored name,
+ * so a chain of renames (a to b to c) still lands on the live one.
+ */
+export async function currentUsernameForFormer(former: string): Promise<string | null> {
+  const supabase = getPublicSupabase();
+  if (!supabase) return null;
+
+  const { data: past } = await supabase
+    .from("username_history")
+    .select("user_id")
+    .eq("username", former)
+    .maybeSingle();
+  if (!past) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", past.user_id)
+    .maybeSingle();
+  return profile?.username ?? null;
+}
+
+/**
+ * Whether `username` is free for `self` to take: nobody else has it now, and
+ * nobody else has left it behind. The database decides on save; this only
+ * keeps the editor from suggesting a name it would refuse.
+ */
+export async function isUsernameFreeFor(username: string, self: string): Promise<boolean> {
+  const supabase = getPublicSupabase();
+  if (!supabase) return true;
+
+  const [live, former] = await Promise.all([
+    supabase.from("profiles").select("id").eq("username", username).neq("id", self).limit(1),
+    supabase.from("username_history").select("user_id").eq("username", username).neq("user_id", self).limit(1),
+  ]);
+  if (live.error || former.error) return false;
+  return (live.data ?? []).length === 0 && (former.data ?? []).length === 0;
+}
+
+/**
+ * A member's open source work as GitHub tells it, for their profile — see
+ * lib/github-profile.ts. Asked of GitHub's GraphQL API with the site's
+ * GITHUB_TOKEN, at most hourly per account; null without a token, for an
+ * account GitHub does not know, or one that is no longer the linked id.
+ */
+export async function getGitHubProfile(login: string, githubId: number | null): Promise<GitHubProfile | null> {
+  "use cache";
+  cacheLife("github");
+  cacheTag(tags.githubProfile(login.toLowerCase()));
+
+  const token = process.env.GITHUB_TOKEN;
+  const first = buildProfileQuery(login);
+  if (!token || !first) return null;
+
+  const ask = async (request: object) => {
+    const response = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": "builders-profile" },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${login}'s profile.`);
+    return response.json();
+  };
+  // The searches leave out the organisations the first request names; a third
+  // asks who wrote the repositories they found, since a private membership
+  // hides some of the member's own. Without its answer the line drawn so far
+  // stands.
+  const profile = await ask(first);
+  const second = buildPullRequestQuery(login, organisationsOf(profile));
+  if (!second) return null;
+  const pullRequests = await ask(second);
+  const repos = pullRequestRepos(pullRequests);
+  const third = buildAuthorQuery(repos);
+  const solo = third ? await ask(third).then((body) => soloReposOf(repos, body, login), () => new Set<string>()) : new Set<string>();
+  return parseProfile(profile, pullRequests, githubId, solo);
+}
 
 /** A project somebody helps on, together with the role they hold there. */
 export type Contribution = ProjectSummary & { role: string };
@@ -1261,6 +1362,7 @@ function toPerson(row: ProfileRow): Person {
     website: row.website ?? "",
     publicEmail: row.public_email ?? "",
     github: row.github ?? "",
+    githubId: row.github_id ?? null,
     linkedin: row.linkedin ?? "",
     x: row.x_url ?? "",
     resume: row.resume_url ?? "",
@@ -1554,6 +1656,34 @@ export async function listOssContributionsOf(userId: string): Promise<OssContrib
   return (await readOssRows(userId)).map(({ repo, relation, manual, verified }) => ({ repo, relation, manual, verified }));
 }
 
+/**
+ * The caller's own GitHub repositories, for choosing which to keep off the
+ * site: those they hide, and those shown now. Not cached: the hidden list is
+ * readable by its owner only.
+ */
+export async function listGitHubRepoChoices(userId: string): Promise<{ hidden: string[]; shown: string[] }> {
+  const supabase = await getSupabase();
+  if (!supabase) return { hidden: [], shown: [] };
+
+  const [hidden, prs, summary] = await Promise.all([
+    supabase.from("github_hidden_repos").select("pattern").eq("user_id", userId).order("pattern"),
+    supabase.from("github_pull_requests").select("repo").eq("user_id", userId),
+    supabase.from("github_commit_summaries").select("repos").eq("user_id", userId).maybeSingle(),
+  ]);
+  const error = hidden.error ?? prs.error ?? summary.error;
+  if (error) {
+    if (!isMissingTable(error)) throw new Error(error.message);
+    warnMissingTable("github_hidden_repos");
+    return { hidden: [], shown: [] };
+  }
+
+  const summaryRepos = ((summary.data?.repos ?? []) as { repo: string }[]).map(({ repo }) => repo);
+  return {
+    hidden: (hidden.data ?? []).map(({ pattern }) => pattern),
+    shown: [...new Set([...(prs.data ?? []).map(({ repo }) => repo), ...summaryRepos])].sort(),
+  };
+}
+
 const CATALOGUE_COLUMNS =
   "id, repo, list, reasons, why, summary, indonesian, starter_label, status, submitted_by, created_at";
 
@@ -1698,8 +1828,17 @@ export async function isSiteAdmin(): Promise<boolean> {
   return data === true;
 }
 
-/** How many pull requests the /activity page reads; the newest, merged or opened. */
-const GITHUB_ACTIVITY_LIMIT = 300;
+/**
+ * How many pull requests the /activity page reads of each kind, newest first.
+ * Read apart: members' own pull requests come by the hundred — a busy week on
+ * one's own project is dozens — and read together they crowded out the
+ * contributions the page and its board are for, down to the last few days.
+ * Contributions are read back as far as the Edge Function keeps them (its
+ * PULL_REQUEST_DAYS, a leaderboard season and a little); own work only for its summary's
+ * SUMMARY_DAYS. 1,000 is also PostgREST's cap on one read.
+ */
+const GITHUB_CONTRIBUTIONS_LIMIT = 1000;
+const GITHUB_OWN_LIMIT = 1000;
 
 type PersonColumns = { id: string; username: string; name: string; github: string } | null;
 
@@ -1727,15 +1866,26 @@ export async function listGitHubActivity(): Promise<GitHubActivityEntry[]> {
   if (!supabase) return [];
 
   const person = "person:profiles(id, username, name, github)";
-  const [pullRequests, summaries] = await Promise.all([
+  const ownSince = new Date(Date.now() - SUMMARY_DAYS * 86_400_000).toISOString();
+  const [contributions, own, summaries] = await Promise.all([
     supabase
       .from("github_pull_requests")
       .select(`*, ${person}`)
+      .eq("own", false)
       .order("opened_at", { ascending: false })
-      .limit(GITHUB_ACTIVITY_LIMIT),
+      .limit(GITHUB_CONTRIBUTIONS_LIMIT),
+    // Only what the summary counts: merged in its window.
+    supabase
+      .from("github_pull_requests")
+      .select(`*, ${person}`)
+      .eq("own", true)
+      .eq("state", "merged")
+      .gte("merged_at", ownSince)
+      .order("merged_at", { ascending: false })
+      .limit(GITHUB_OWN_LIMIT),
     supabase.from("github_commit_summaries").select(`*, ${person}`),
   ]);
-  const error = pullRequests.error ?? summaries.error;
+  const error = contributions.error ?? own.error ?? summaries.error;
   if (error) {
     // A deploy ahead of 20261024000000_github_activity.sql shows an empty
     // page, not an error.
@@ -1745,10 +1895,47 @@ export async function listGitHubActivity(): Promise<GitHubActivityEntry[]> {
 
   type WithPerson<T> = T & { person: PersonColumns };
   return buildGitHubActivity(
-    ((pullRequests.data ?? []) as WithPerson<GitHubPullRequestRow>[]).map((row) => ({ ...row, person: activityPerson(row.person) })),
+    ([...(contributions.data ?? []), ...(own.data ?? [])] as WithPerson<GitHubPullRequestRow>[]).map((row) => ({ ...row, person: activityPerson(row.person) })),
     ((summaries.data ?? []) as WithPerson<GitHubCommitSummaryRow>[]).map((row) => ({ ...row, person: activityPerson(row.person) })),
   );
 }
+
+/**
+ * Pull requests to members' own repositories, open or merged, as far back as
+ * the Edge Function keeps them: the "own repos" leaderboard counts the weeks
+ * they were opened in. Only what the board needs is read, a page at a time —
+ * own work comes by the hundred.
+ */
+export async function listOwnPullRequests(): Promise<PullRequestEntry[]> {
+  "use cache";
+  cacheLife("board");
+  cacheTag(tags.activity, tags.people);
+
+  const supabase = getPublicSupabase();
+  if (!supabase) return [];
+
+  const rows: WithPersonColumns<OwnPullRequestColumns>[] = [];
+  for (let page = 0; page < OWN_HISTORY_PAGES; page += 1) {
+    const { data, error } = await supabase
+      .from("github_pull_requests")
+      .select("url, user_id, repo, number, title, state, opened_at, merged_at, person:profiles(id, username, name, github)")
+      .eq("own", true)
+      .order("opened_at", { ascending: false })
+      .range(page * GITHUB_OWN_LIMIT, (page + 1) * GITHUB_OWN_LIMIT - 1);
+    if (error) {
+      console.warn(`[builders] Own pull requests were skipped: ${error.message}`);
+      return [];
+    }
+    rows.push(...((data ?? []) as unknown as WithPersonColumns<OwnPullRequestColumns>[]));
+    if ((data ?? []).length < GITHUB_OWN_LIMIT) break;
+  }
+  return ownPullRequestEntries(rows.map((row) => ({ ...row, person: activityPerson(row.person) })));
+}
+
+/** Pages of GITHUB_OWN_LIMIT read for the own board: plenty for PULL_REQUEST_DAYS. */
+const OWN_HISTORY_PAGES = 5;
+type OwnPullRequestColumns = Pick<GitHubPullRequestRow, "url" | "user_id" | "repo" | "number" | "title" | "state" | "opened_at" | "merged_at">;
+type WithPersonColumns<T> = T & { person: PersonColumns };
 
 /**
  * Every reaction left on /activity, with the reactor's name for the tooltip.

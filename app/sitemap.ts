@@ -2,6 +2,8 @@ import type { MetadataRoute } from "next";
 import { siteUrl } from "./content";
 import { isOss } from "./lib/site";
 import { listPeople, listProjects } from "./lib/data";
+import { listedRepos } from "./lib/directory-read";
+import { repoPagePath } from "./lib/directory";
 
 /**
  * Every page worth finding from outside.
@@ -18,6 +20,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base: MetadataRoute.Sitemap = [
     { url: `${siteUrl}/`, changeFrequency: "daily", priority: 1 },
     { url: `${siteUrl}/directory`, changeFrequency: "daily", priority: 0.8 },
+    ...(isOss ? [{ url: `${siteUrl}/leaderboard`, changeFrequency: "weekly" as const, priority: 0.5 }] : []),
     { url: `${siteUrl}/about`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${siteUrl}/community`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${siteUrl}/how-it-works`, changeFrequency: "monthly", priority: 0.6 },
@@ -25,7 +28,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   try {
-    const [projects, people] = await Promise.all([isOss ? Promise.resolve([]) : listProjects(), listPeople()]);
+    const [projects, people, repos] = await Promise.all([
+      isOss ? Promise.resolve([]) : listProjects(),
+      listPeople(),
+      // Each listed repo's page, the open source site's own share link.
+      isOss ? listedRepos("en") : Promise.resolve([]),
+    ]);
 
     return [
       ...base,
@@ -34,6 +42,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         lastModified: new Date(project.createdAt),
         changeFrequency: "weekly" as const,
         priority: 0.8,
+      })),
+      ...repos.map((repo) => ({
+        url: `${siteUrl}${repoPagePath(repo)}`,
+        changeFrequency: "weekly" as const,
+        priority: 0.7,
       })),
       ...people.map((person) => ({
         url: `${siteUrl}/u/${person.username}`,

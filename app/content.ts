@@ -23,16 +23,11 @@ export const waCommunityUrl = isOss
 export const contribReadyUrl = "https://contrib.idnremote.com";
 
 /**
- * The issue where /activity's leaderboard and gamification are being worked
- * out; the page points ideas there until it ships.
+ * The issue where the leaderboard's points and gamification are being worked
+ * out; the board links there for ideas.
  */
 export const leaderboardIssueUrl = `https://github.com/${sourceRepo}/issues/186`;
 
-/**
- * Closing the leaderboard note on a phone keeps it closed for a month. Read
- * on the server, so a closed note never flashes back before hydration.
- */
-export const LEADERBOARD_NOTE_COOKIE = "builders_leaderboard_note_closed";
 
 /**
  * The SWE Growth admin's WhatsApp (0823-3858-8078), in international form.

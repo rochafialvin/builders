@@ -20,6 +20,21 @@ export function safeNextPath(value: string | null | undefined): string {
   }
 }
 
+/** Why linking or switching GitHub did not happen: refused, already another
+ * member's, or the very account already linked. */
+export type GitHubLinkFailure = "failed" | "taken" | "same";
+
+/**
+ * Back where somebody asked to link (or switch) GitHub, saying why it did not happen.
+ * Not /signin: they are signed in already, and /signin sends anyone signed in
+ * straight on to `next` — so the failure would vanish without a word.
+ */
+export function gitHubLinkFailedPath(next: string | null | undefined, reason: GitHubLinkFailure): string {
+  const url = new URL(safeNextPath(next), "https://ahsan.local");
+  url.searchParams.set("github-link", reason);
+  return `${url.pathname}${url.search}#github-account`;
+}
+
 export function signInPath(next: string): string {
   const target = safeNextPath(next);
   return target === "/" ? "/signin" : `/signin?next=${encodeURIComponent(target)}`;

@@ -5,7 +5,11 @@ import type { Person } from "./data";
 import type { ProfileRow } from "./database.types";
 import { availabilityStatus } from "./availability";
 
-export type Viewer = Person & { email: string };
+export type Viewer = Person & {
+  email: string;
+  /** A GitHub handle they typed before accounts had to be linked, or empty: what the editor asks them to link. */
+  githubTyped: string;
+};
 
 type AuthIdentity = {
   id: string;
@@ -164,6 +168,7 @@ function toViewer(profile: ProfileRow, email: string): Viewer {
     resume: profile.resume_url ?? "",
     activityHidden: profile.activity_hidden ?? [],
     githubActivityShown: profile.github_activity_shown === true,
+    githubTyped: profile.github_typed ?? "",
     email,
   };
 }

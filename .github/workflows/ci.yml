@@ -43,6 +43,11 @@ jobs:
         env:
           NEXT_PUBLIC_SITE: oss
 
+      - name: Test the open source site
+        run: npm run test:rendered
+        env:
+          NEXT_PUBLIC_SITE: oss
+
   policies:
     name: Database policies
     runs-on: ubuntu-latest

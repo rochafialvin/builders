@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "@/app/components/responsive-link";
 import { SiteFooter, SiteHeader } from "../components/shell";
-import { ForgotPasswordForm } from "../components/auth-forms";
-import { supabaseConfigured } from "../lib/supabase";
+import { waAdminUrl } from "../content";
 import { currentLocale } from "../lib/locale-server";
 import { tx } from "../lib/locale";
 import { site } from "../lib/site";
@@ -11,11 +10,16 @@ export async function generateMetadata(): Promise<Metadata> {
   const locale = await currentLocale();
   return {
     title: tx(locale, `Lupa kata sandi — ${site.name}`, `Forgot password — ${site.name}`),
-    description: tx(locale, `Minta tautan untuk mengatur ulang kata sandi akun ${site.name}.`, `Request a link to reset your ${site.name} account password.`),
+    description: tx(locale, `Masuk ke ${site.name} dengan GitHub atau Google.`, `Sign in to ${site.name} with GitHub or Google.`),
     robots: { index: false },
   };
 }
 
+/**
+ * Kept so old links land somewhere, but there is no reset any more: it needs
+ * email the site does not send, and password sign-in is being retired (#211).
+ * Signing in with Google under the same email reaches the same account.
+ */
 export default async function ForgotPasswordPage() {
   const locale = await currentLocale();
   return (
@@ -23,24 +27,20 @@ export default async function ForgotPasswordPage() {
       <SiteHeader returnTo="/forgot-password" />
 
       <main id="main-content" className="page-narrow auth-page">
-        <p className="eyebrow">
-          <span /> {tx(locale, "Lupa kata sandi", "Forgot password")}
-        </p>
-        <h1>{tx(locale, "Tidak masalah.", "No problem.")}</h1>
+        <h1>{tx(locale, "Kata sandi tidak dipakai lagi.", "Passwords are no longer used.")}</h1>
         <p className="lede">
-          {tx(locale, "Masukkan alamat emailmu dan kami akan mengirim tautan untuk membuat kata sandi baru.", "Enter your email address and we will send you a link to set a new password.")}
+          {tx(
+            locale,
+            "Masuk dengan GitHub atau Google. Kalau akun lamamu memakai email Gmail, masuk dengan Google memakai email yang sama—akunnya tetap akun yang sama.",
+            "Sign in with GitHub or Google. If your older account uses a Gmail address, sign in with Google under the same email—it is the same account.",
+          )}
         </p>
-
-        {supabaseConfigured() ? (
-          <ForgotPasswordForm />
-        ) : (
-          <p className="form-error">
-            {tx(locale, "Situs ini belum terhubung ke Supabase sehingga kata sandi belum dapat diatur ulang.", "This site is not connected to Supabase yet, so passwords cannot be reset.")}
-          </p>
-        )}
-
         <p className="auth-switch">
-          {tx(locale, "Sudah ingat?", "Remembered it?")} <Link href="/signin">{tx(locale, "Masuk", "Sign in")}</Link>.
+          <Link href="/signin">{tx(locale, "Masuk", "Sign in")}</Link>
+          {" · "}
+          <a href={waAdminUrl(`Halo Admin SWE Growth, saya tidak bisa masuk ke akun ${site.name} saya.`)} target="_blank" rel="noopener noreferrer">
+            {tx(locale, "Tanya admin", "Ask the admin")}
+          </a>
         </p>
       </main>
 

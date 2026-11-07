@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireSupabase } from "./lib/supabase";
 import { safeNextPath, startPath } from "./lib/urls";
-import { siteOrigin } from "./lib/origin";
 import { currentLocale } from "./lib/locale-server";
 import { tx, type Locale } from "./lib/locale";
 
@@ -28,44 +27,6 @@ export async function signIn(_state: AuthState, formData: FormData): Promise<Aut
 
   revalidatePath("/", "layout");
   redirect(startPath(next));
-}
-
-/**
- * Sends the "set a new password" link.
- *
- * The answer is the same whether or not the address is registered: telling a
- * stranger which emails have accounts here is not something a login page
- * should do. The link lands on /auth/confirm, which trades the token for a
- * session and forwards to the form below.
- */
-export async function requestPasswordReset(
-  _state: AuthState,
-  formData: FormData,
-): Promise<AuthState> {
-  const locale = await currentLocale();
-  const email = text(formData, "email").toLowerCase();
-  const values = { email };
-
-  if (!email.includes("@")) return { error: tx(locale, "Masukkan alamat email yang valid.", "Enter a valid email address."), values };
-
-  const supabase = await requireSupabase();
-  const origin = await siteOrigin();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/confirm?next=${encodeURIComponent("/account/password")}`,
-  });
-  // A rate limit is worth saying out loud; anything else stays behind the
-  // same neutral notice, so a failure cannot be read as "this email exists".
-  if (error && /rate|limit|too many/i.test(error.message)) {
-    return { error: tx(locale, "Terlalu banyak permintaan. Tunggu sebentar lalu coba lagi.", "Too many requests. Please wait a moment and try again."), values };
-  }
-
-  return {
-    notice: tx(locale,
-      `Jika ${email} terdaftar di sini, kami telah mengirim tautan pengaturan ulang kata sandi. Tautan tersebut segera kedaluwarsa, jadi segera buka.`,
-      `If ${email} is registered here, we have sent a password reset link. The link expires soon, so please open it promptly.`,
-    ),
-    values,
-  };
 }
 
 /**

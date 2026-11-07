@@ -72,27 +72,43 @@ async function refresh(asked: RepoKey[] | null): Promise<void> {
   const since = new Date(Date.now() - PR_EVIDENCE_DAYS * 86_400_000).toISOString().slice(0, 10);
 
   for (const batch of chunk(repos, BATCH_SIZE)) {
+    for (const signal of await askGitHub(batch, since, token)) {
+      // Row by row, writing only what GitHub actually answered: a repository it
+      // could not find keeps its last good numbers, and a failed search keeps
+      // the last good PR count. Only the error and the check time always move.
+      const { error } = await supabase.from("repo_signals").upsert(knownColumns(signal), { onConflict: "repo" });
+      if (error) throw new Error(error.message);
+    }
+  }
+}
+
+/**
+ * One batch's signals. A query GitHub gives up on — a 502 at its ten-second
+ * limit, or our own timeout — is asked again in two halves, down to a single
+ * repository, so one heavy repository cannot hold the rest back. A repository
+ * that fails alone keeps its last good numbers: yesterday's beat none.
+ */
+async function askGitHub(batch: RepoKey[], since: string, token: string): Promise<RepoSignal[]> {
+  let failure: string;
+  try {
     const response = await fetch("https://api.github.com/graphql", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": "builders-refresh-repos" },
       body: JSON.stringify({ query: buildQuery(batch, since) }),
       signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) {
-      // Leave every row as it was: yesterday's numbers beat none.
-      console.error(`[refresh-repos] GitHub answered ${response.status} for ${batch.length} repositories.`);
-      continue;
-    }
-
-    const signals = parseResponse(batch, await response.json(), new Date().toISOString());
-    // Row by row, writing only what GitHub actually answered: a repository it
-    // could not find keeps its last good numbers, and a failed search keeps
-    // the last good PR count. Only the error and the check time always move.
-    for (const signal of signals) {
-      const { error } = await supabase.from("repo_signals").upsert(knownColumns(signal), { onConflict: "repo" });
-      if (error) throw new Error(error.message);
-    }
+    if (response.ok) return parseResponse(batch, await response.json(), new Date().toISOString());
+    failure = `GitHub answered ${response.status}`;
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
   }
+
+  if (batch.length === 1) {
+    console.error(`[refresh-repos] ${failure} for ${batch[0]}; its last numbers stay.`);
+    return [];
+  }
+  const half = Math.ceil(batch.length / 2);
+  return [...(await askGitHub(batch.slice(0, half), since, token)), ...(await askGitHub(batch.slice(half), since, token))];
 }
 
 function knownColumns(signal: RepoSignal): Partial<RepoSignal> {

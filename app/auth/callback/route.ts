@@ -2,15 +2,14 @@ import { type NextRequest, type NextResponse } from "next/server";
 import { getSupabase } from "../../lib/supabase";
 import { siteOrigin } from "../../lib/origin";
 import { sameOriginRedirect } from "../../lib/redirect";
-import { pinnedOrigin, safeNextPath, startPath } from "../../lib/urls";
-import type { Supabase } from "../../lib/supabase";
-import type { Session } from "@supabase/supabase-js";
+import { gitHubLinkFailedPath, pinnedOrigin, safeNextPath, startPath } from "../../lib/urls";
 
 /**
  * Exchanges a provider's short-lived OAuth code — Google's or GitHub's — for
  * the session cookies used by the app. `via` names the provider; it is set by
- * `startOAuth` and only decides which failure to report and whether there is a
- * GitHub handle to record.
+ * `startOAuth` and only decides which failure to report. The GitHub account a
+ * sign-in links is recorded on the profile by the database itself — see
+ * 20261103000000_linked_github.sql.
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
@@ -21,11 +20,11 @@ export async function GET(request: NextRequest) {
   const failure = new URLSearchParams();
 
   if (code && supabase) {
-    const { data: exchanged, error } = await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
     // Stay on this host. The session cookies were just written here, and a
     // redirect to any other name for the site would arrive without them.
     if (!error) {
-      if (via === "github") await keepGitHub(supabase, exchanged.session);
+      if (via === "github") await keepNewestGitHub(supabase);
       return sameOriginRedirect(startPath(next));
     }
 
@@ -54,6 +53,17 @@ export async function GET(request: NextRequest) {
     const missingVerifier = /code[ _]verifier/i.test(error.message);
     failure.set("error", missingVerifier ? "origin-mismatch" : `${via}-failed`);
   } else {
+    // No code: the provider or Supabase refused. Somebody already signed in
+    // was linking GitHub, and /signin would bounce them straight back without
+    // a word — so say it where they started. A GitHub account that is
+    // already linked, to another member or to this one, is worth naming.
+    const errorCode = request.nextUrl.searchParams.get("error_code");
+    const description = request.nextUrl.searchParams.get("error_description") ?? "";
+    if (via === "github" && supabase && (await supabase.auth.getUser()).data.user) {
+      console.error(`[builders] GitHub link refused: ${errorCode ?? "unknown"}`, description);
+      const reason = errorCode !== "identity_already_exists" ? "failed" : /another user/i.test(description) ? "taken" : "same";
+      return sameOriginRedirect(gitHubLinkFailedPath(next, reason));
+    }
     failure.set("error", `${via}-failed`);
   }
 
@@ -74,19 +84,21 @@ function retry(path: string, wrongHost: boolean): NextResponse | Response {
   return pinned ? Response.redirect(new URL(path, pinned), 307) : sameOriginRedirect(path);
 }
 
-/** What a GitHub sign-in leaves behind besides the session: the person's
- * GitHub handle, on a profile that has none yet. */
-async function keepGitHub(supabase: Supabase, session: Session | null): Promise<void> {
-  if (!session) return;
-  const identity = session.user.identities?.find((item) => item.provider === "github");
-  const handle = identity?.identity_data?.user_name;
-  if (typeof handle !== "string" || !/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(handle)) return;
-
-  // Only fills an empty field: a handle somebody typed themselves wins.
-  const { error } = await supabase
-    .from("profiles")
-    .update({ github: `https://github.com/${handle}` })
-    .eq("id", session.user.id)
-    .eq("github", "");
-  if (error) console.warn(`[builders] Could not record the GitHub handle: ${error.message}`);
+/**
+ * After a GitHub account is switched (see `startOAuth`), the member has two
+ * GitHub identities: the one just linked and the one it replaces. The newest
+ * stays; the rest are unlinked. The database already shows the new one on the
+ * profile, and keeps it when the old one goes (20261104000000_switch_github.sql),
+ * so a failure here only leaves the old account able to sign in too — logged,
+ * not shown.
+ */
+async function keepNewestGitHub(supabase: NonNullable<Awaited<ReturnType<typeof getSupabase>>>): Promise<void> {
+  const { data } = await supabase.auth.getUserIdentities();
+  const github = (data?.identities ?? [])
+    .filter((identity) => identity.provider === "github")
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  for (const old of github.slice(1)) {
+    const { error } = await supabase.auth.unlinkIdentity(old);
+    if (error) console.error(`[builders] The replaced GitHub account could not be unlinked: ${error.code ?? "unknown"}`, error.message);
+  }
 }

@@ -6,6 +6,7 @@ import {
   buildSearchQuery,
   chunk,
   githubHandle,
+  isHiddenRepo,
   parseResponse,
 } from "../supabase/functions/refresh-github-activity/activity.ts";
 import { activityRepos, activityStats, buildGitHubActivity, queryActivity } from "../app/lib/github-activity.ts";
@@ -26,7 +27,7 @@ test("one query asks about every member, public pull requests only, names quoted
   assert.match(query, /u0: user\(login: "ana"\)/);
   assert.match(query, /u1: user\(login: "budi"\)/);
   assert.match(query, /contributionsCollection\(from: "2026-09-22T00:00:00.000Z"\)/);
-  assert.match(query, /p1: search\(type: ISSUE, first: 50, query: "is:pr is:public author:budi updated:>=2026-07-24"\)/);
+  assert.match(query, /p1: search\(type: ISSUE, first: 50, query: "is:pr is:public author:budi updated:>=2026-07-14"\)/);
   assert.match(query, /organizations\(first: 100\)/);
   assert.match(query, /authorAssociation/);
 });
@@ -82,6 +83,42 @@ test("pull requests are kept, own repos' marked as such; own repos' commits beco
     since: "2026-09-22",
     checked_at: now.toISOString(),
   });
+});
+
+test("a repository the member hides is skipped, by name or by its whole owner", () => {
+  const repository = (name) => ({ nameWithOwner: name, isPrivate: false, owner: { login: name.split("/")[0] } });
+  const pr = (name, number) => ({ url: `https://github.com/${name}/pull/${number}`, number, title: "", state: "OPEN", createdAt: "2026-10-10T00:00:00Z", mergedAt: null, repository: repository(name) });
+  const [activity] = parseResponse(
+    [{ ...ana, hidden: ["org/secret", "work/*"] }],
+    {
+      data: {
+        u0: {
+          login: "ana",
+          contributionsCollection: {
+            commitContributionsByRepository: [
+              { repository: repository("ana/side"), contributions: { totalCount: 3, nodes: [] } },
+              { repository: repository("ana/diary"), contributions: { totalCount: 5, nodes: [] } },
+            ],
+          },
+        },
+        p0: { nodes: [pr("org/tool", 1), pr("Org/Secret", 2), pr("work/api", 3)] },
+      },
+    },
+    now,
+  );
+  assert.deepEqual(activity.pullRequests.map((row) => row.repo), ["org/tool"]);
+
+  const [own] = parseResponse(
+    [{ ...ana, hidden: ["ana/diary"] }],
+    { data: { u0: { login: "ana", contributionsCollection: { commitContributionsByRepository: [{ repository: repository("ana/side"), contributions: { totalCount: 3, nodes: [] } }, { repository: repository("ana/diary"), contributions: { totalCount: 5, nodes: [] } }] } }, p0: { nodes: [] } } },
+    now,
+  );
+  assert.deepEqual(own.summary.repos, [{ repo: "ana/side", commits: 3 }]);
+  assert.equal(own.summary.commits, 3);
+
+  assert.equal(isHiddenRepo("work/api", ["work/*"]), true);
+  assert.equal(isHiddenRepo("workshop/api", ["work/*"]), false);
+  assert.equal(isHiddenRepo("org/tool", []), false);
 });
 
 test("an organisation the member belongs to is their own work, not a contribution", () => {
@@ -142,7 +179,7 @@ test("a search the member's own repos filled is asked again without them", () =>
   assert.deepEqual(budiFirst.found && budiFirst.narrowSearch, []);
 
   const query = buildSearchQuery([{ index: 0, handle: "ana", exclude: ["work", "ana"] }], now);
-  assert.match(query, /p0: search\(type: ISSUE, first: 50, query: "is:pr is:public author:ana updated:>=2026-07-24 -user:work -user:ana"\)/);
+  assert.match(query, /p0: search\(type: ISSUE, first: 50, query: "is:pr is:public author:ana updated:>=2026-07-14 -user:work -user:ana"\)/);
   assert.doesNotMatch(query, /u0:/);
   // A query GitHub would refuse for its length keeps only the owners that fit.
   const long = buildSearchQuery([{ index: 0, handle: "ana", exclude: Array.from({ length: 20 }, (_, i) => `organisation-${i}`) }], now);
@@ -343,4 +380,81 @@ test("the timeline groups by day in WIB, not in the server's UTC", async () => {
   const at = (key, when) => ({ kind: "pull_request", key, at: when });
   const days = groupByDay([at("a", "2026-10-22T03:00:00Z"), at("b", "2026-10-21T18:00:00Z"), at("c", "2026-10-21T10:00:00Z")]);
   assert.deepEqual(days.map(({ day, entries }) => [day, entries.map((entry) => entry.key)]), [["2026-10-22", ["a", "b"]], ["2026-10-21", ["c"]]]);
+});
+
+test("a login that now belongs to another account than the one linked is not the member's", () => {
+  const now = new Date("2026-10-27T00:00:00Z");
+  const linked = { id: "a", handle: "fajarhide", githubId: 4821 };
+  const query = buildQuery([linked], now);
+  assert.match(query, /databaseId/);
+
+  const [same] = parseResponse([linked], { data: { u0: { login: "fajarhide", databaseId: 4821 }, p0: { issueCount: 0, nodes: [] } } }, now);
+  assert.equal(same.found, true);
+  // Renamed, and somebody else took the old login: a different id answers.
+  const [taken] = parseResponse([linked], { data: { u0: { login: "fajarhide", databaseId: 9999 }, p0: { issueCount: 0, nodes: [] } } }, now);
+  assert.equal(taken.found, false);
+});
+
+test("a repository the member wrote nearly alone is their own work, whoever owns it", async () => {
+  const { authorQuestions, buildAuthorQuery, mainAuthorsOf, parseResponse } = await import("../supabase/functions/refresh-github-activity/activity.ts");
+  const now = new Date("2026-10-28T00:00:00Z");
+  const member = { id: "11111111-1111-4111-8111-111111111111", handle: "Rhyanz46" };
+  const pr = (repo, number) => ({
+    url: `https://github.com/${repo}/pull/${number}`, number, title: "Work", state: "MERGED",
+    createdAt: "2026-10-20T00:00:00Z", mergedAt: "2026-10-21T00:00:00Z",
+    // A private membership: GitHub calls the author a mere contributor.
+    authorAssociation: "CONTRIBUTOR",
+    repository: { nameWithOwner: repo, isPrivate: false, owner: { login: repo.split("/")[0] } },
+  });
+  const body = { data: {
+    u0: { login: "Rhyanz46", organizations: { nodes: [] }, contributionsCollection: { commitContributionsByRepository: [
+      { repository: { nameWithOwner: "go-routine-id/flowmaid", isPrivate: false, owner: { login: "go-routine-id" } }, contributions: { totalCount: 12, nodes: [{ occurredAt: "2026-10-21T00:00:00Z" }] } },
+    ] } },
+    p0: { issueCount: 3, nodes: [pr("go-routine-id/flowmaid", 1), pr("ahmadrosid/nakama", 2), pr("busy/shared", 3)] },
+  } };
+
+  const first = parseResponse([member], body, now);
+  const [repos, more] = authorQuestions(first);
+  assert.equal(more, undefined, "three repos: one question");
+  assert.deepEqual(repos, ["ahmadrosid/nakama", "busy/shared", "go-routine-id/flowmaid"]);
+  assert.match(buildAuthorQuery(repos), /a2: repository\(owner: "go-routine-id", name: "flowmaid"\)/);
+
+  const commits = (counts) => ({ defaultBranchRef: { target: { history: { nodes: Object.entries(counts).flatMap(([login, n]) => Array.from({ length: n }, () => ({ author: { user: { login } } }))) } } } });
+  const authors = mainAuthorsOf(repos, { data: {
+    a0: commits({ ahmadrosid: 57, fajarhide: 8 }),
+    // The member writes most of it, but not nearly all: still somebody else's.
+    a1: commits({ rhyanz46: 60, owner: 40 }),
+    a2: commits({ Rhyanz46: 100 }),
+  } });
+  assert.deepEqual([...authors], [["ahmadrosid/nakama", "ahmadrosid"], ["go-routine-id/flowmaid", "rhyanz46"]]);
+
+  const [activity] = parseResponse([member], body, now, undefined, authors);
+  assert.deepEqual(activity.pullRequests.map((row) => [row.repo, row.own]), [
+    ["go-routine-id/flowmaid", true],
+    ["ahmadrosid/nakama", false],
+    ["busy/shared", false],
+  ]);
+  assert.deepEqual(activity.summary.repos, [{ repo: "go-routine-id/flowmaid", commits: 12 }], "its commits join their own work");
+});
+
+test("every repository is asked about, forty at a time, not only the first forty", async () => {
+  const { authorQuestions, AUTHOR_REPOS_MAX } = await import("../supabase/functions/refresh-github-activity/activity.ts");
+  const pullRequests = Array.from({ length: 95 }, (_, index) => ({ repo: `org${String(index).padStart(2, "0")}/repo`, own: false }));
+  const questions = authorQuestions([{ found: true, pullRequests: [...pullRequests, { repo: "mine/own", own: true }] }]);
+  assert.deepEqual(questions.map((repos) => repos.length), [AUTHOR_REPOS_MAX, AUTHOR_REPOS_MAX, 15]);
+  assert.equal(questions.at(-1).at(-1), "org94/repo", "late in the alphabet too");
+  assert.equal(questions.flat().includes("mine/own"), false);
+});
+
+test("the feed follows the board's weeks; a summary of own work keeps its own window", async () => {
+  const { boardWindow, inWindow } = await import("../app/lib/github-activity.ts");
+  const person = { id: ana.id, username: "ana", name: "Ana", handle: "ana" };
+  const pr = (at) => ({ kind: "pull_request", key: at, person, repo: "x/y", url: `https://github.com/x/y/pull/${at}`, state: "open", pullRequests: [], at });
+  const summary = { kind: "commit_summary", key: "s", person, commits: 3, merged: 0, repos: [], since: "2026-09-01", at: "2026-09-01T00:00:00.000Z" };
+  // 2026-10-22 is a Thursday: the last four weeks start on Monday 2026-09-28, the season on Monday 2026-10-05.
+  const lastFour = boardWindow("2026-10-22", "4");
+  const kept = inWindow([pr("2026-10-21T03:00:00.000Z"), pr("2026-09-28T01:00:00.000Z"), pr("2026-09-27T10:00:00.000Z"), summary], lastFour);
+  // 2026-09-27 10:00 UTC is 17:00 WIB on Sunday: the week before the window.
+  assert.deepEqual(kept.map((entry) => entry.key), ["2026-10-21T03:00:00.000Z", "2026-09-28T01:00:00.000Z", "s"]);
+  assert.equal(inWindow([pr("2026-10-04T18:00:00.000Z")], boardWindow("2026-10-22", "season")).length, 1, "Monday 01:00 WIB is in the season's first week");
 });

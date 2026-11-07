@@ -28,8 +28,8 @@ import {
   PROFILE_LIMITS,
   PROFILE_MAXIMUM,
   isEmail,
-  validateGitHub,
   validateProfile,
+  validateUsername,
   type ProfileFieldErrors,
   type ProfileInput,
 } from "./lib/profile";
@@ -794,50 +794,148 @@ export async function updateProfile(
   updateTag(tags.projects);
   revalidatePath(`/u/${viewer.username}`);
   revalidatePath("/get-started");
+  revalidatePath("/account/profile");
   redirect(returnTo ?? `/u/${viewer.username}?saved=1`);
 }
 
 export type GitHubState = {
-  errors: { github?: string; form?: string };
-  values: { github: string; shown: boolean };
+  errors: { form?: string };
+  values: { shown: boolean };
   saved?: boolean;
 };
 
 /**
- * Saves the GitHub account, and whether its activity may be shown on
+ * Saves whether the linked GitHub account's activity may be shown on
  * /activity.
  *
- * Its own form at the top of /account/profile, because the open source record
- * sits between it and the rest of the profile and forms cannot nest. The yes
- * to /activity goes with the account it is about: without an account there
- * is nothing to show, so clearing the account clears the yes too, and a new
- * account later starts from no.
+ * The account itself is not typed here any more: it is the one linked through
+ * OAuth, which the database records on the profile (see
+ * 20261103000000_linked_github.sql). Without one there is nothing to show, so
+ * the yes is refused rather than stored.
  */
 export async function saveGitHub(_state: GitHubState, formData: FormData): Promise<GitHubState> {
-  const values = { github: text(formData, "github"), shown: formData.get("github_activity") === "1" };
+  const values = { shown: formData.get("github_activity") === "1" };
   const [viewer, locale] = await Promise.all([currentViewer(), currentLocale()]);
   if (!viewer) {
     return { errors: { form: tx(locale, "Sesi kamu telah berakhir. Masuk kembali, lalu simpan sekali lagi.", "You are no longer signed in. Sign in again, then save once more.") }, values };
   }
+  if (values.shown && !viewer.github) {
+    return { errors: { form: tx(locale, "Tautkan akun GitHub-mu dulu.", "Link your GitHub account first.") }, values: { shown: false } };
+  }
 
-  const checked = validateGitHub(values.github, locale);
-  if ("error" in checked) return { errors: { github: checked.error }, values };
-
-  const shown = checked.url !== "" && values.shown;
   const supabase = await requireSupabase();
-  const { error } = await supabase
-    .from("profiles")
-    .update({ github: checked.url, github_activity_shown: shown })
-    .eq("id", viewer.id);
+  const { error } = await supabase.from("profiles").update({ github_activity_shown: values.shown }).eq("id", viewer.id);
   if (error) return { errors: { form: error.message }, values };
 
-  // The handle is the picture on directory badges and the person on /activity.
   updateTag(tags.person(viewer.username));
   updateTag(tags.people);
-  updateTag(tags.projects);
   updateTag(tags.activity);
   revalidatePath(`/u/${viewer.username}`);
-  return { errors: {}, values: { github: checked.url, shown }, saved: true };
+  return { errors: {}, values, saved: true };
+}
+
+/**
+ * Keeps a repository off the site: `owner/name`, a GitHub link, or `owner/*`
+ * for a whole account or organisation. The database clears what was stored
+ * for it at once (20261105000000_github_hidden_repos.sql).
+ */
+export async function hideGitHubRepo(formData: FormData): Promise<void> {
+  const viewer = await currentViewer();
+  if (!viewer) return;
+  const raw = String(formData.get("repo") ?? "").trim();
+  const owner = raw.match(/^([A-Za-z0-9-]+)\/\*$/)?.[1];
+  const pattern = owner ? `${owner.toLowerCase()}/*` : parseRepoRef(raw);
+  if (!pattern) return;
+
+  const supabase = await requireSupabase();
+  const { error } = await supabase.from("github_hidden_repos").upsert({ user_id: viewer.id, pattern }, { onConflict: "user_id,pattern", ignoreDuplicates: true });
+  if (error) throw new Error(error.message);
+  githubReposChanged(viewer.username);
+}
+
+/** Shows a hidden repository again; the refresh function fetches it back within minutes. */
+export async function showGitHubRepo(formData: FormData): Promise<void> {
+  const viewer = await currentViewer();
+  if (!viewer) return;
+  const pattern = String(formData.get("pattern") ?? "");
+
+  const supabase = await requireSupabase();
+  const { error } = await supabase.from("github_hidden_repos").delete().eq("user_id", viewer.id).eq("pattern", pattern);
+  if (error) throw new Error(error.message);
+  githubReposChanged(viewer.username);
+}
+
+function githubReposChanged(username: string): void {
+  updateTag(tags.activity);
+  updateTag(tags.oss);
+  updateTag(tags.people);
+  updateTag(tags.person(username));
+  revalidatePath("/account/profile");
+}
+
+export type UsernameState = {
+  error?: string;
+  username: string;
+  /** The name typed was already theirs: nothing to save, but say so. */
+  unchanged?: boolean;
+};
+
+/**
+ * Changes the member's profile URL.
+ *
+ * The format and reserved rules are checked here first for a kind message, but
+ * the database is the real gate: `change_username` owns availability, the
+ * cooldown and keeping the old name resolvable, none of which the client can
+ * see. Its raised message is Indonesian; the common outcomes are mapped by
+ * error code so the English site stays English, and anything unmapped falls
+ * back to what the function said.
+ */
+export async function changeUsername(_state: UsernameState, formData: FormData): Promise<UsernameState> {
+  const typed = text(formData, "username");
+  const [viewer, locale] = await Promise.all([currentViewer(), currentLocale()]);
+  if (!viewer) {
+    return { error: tx(locale, "Sesi kamu telah berakhir. Masuk kembali, lalu coba sekali lagi.", "You are no longer signed in. Sign in again, then try once more."), username: typed };
+  }
+
+  const checked = validateUsername(typed, locale);
+  if ("error" in checked) return { error: checked.error, username: typed };
+  if (checked.username === viewer.username) return { username: viewer.username, unchanged: true };
+
+  const supabase = await requireSupabase();
+  const { data, error } = await supabase.rpc("change_username", { new_name: checked.username });
+  if (error) {
+    const message =
+      error.hint === "github_login"
+        ? tx(locale, "Itu username akun GitHub member lain. Coba yang lain.", "That is another member's GitHub username. Try another.")
+        : error.code === "23505"
+          ? tx(locale, "Username itu sudah dipakai. Coba yang lain.", "That username is taken. Try another.")
+          : error.code === "55000"
+            ? tx(locale, "Username baru bisa diubah lagi 30 hari setelah perubahan terakhir.", "A username can only be changed again 30 days after the last change.")
+            : error.code === "22023"
+              ? tx(
+                  locale,
+                  "Username harus 2 sampai 48 karakter: huruf kecil, angka atau tanda hubung, diawali huruf atau angka.",
+                  "A username is 2 to 48 characters: lowercase letters, digits or hyphens, starting with a letter or digit.",
+                )
+              : error.message;
+    return { error: message, username: checked.username };
+  }
+
+  const next = typeof data === "string" ? data : checked.username;
+  // Both names change views: the old /u redirects now, the new one is live,
+  // and every list and badge shows the handle. Their trail and the teams on
+  // projects link to them too, and the layout's account menu and bottom bar
+  // carry the name, so the whole tree is refreshed: a rename is rare enough.
+  updateTag(tags.person(viewer.username));
+  updateTag(tags.person(next));
+  updateTag(tags.people);
+  updateTag(tags.projects);
+  updateTag(tags.seats);
+  updateTag(tags.activity);
+  updateTag(tags.oss);
+  trailChanged(viewer.id);
+  revalidatePath("/", "layout");
+  redirect(`/u/${next}?saved=1`);
 }
 
 export type ReactionResult = { ok: true } | { ok: false; reason: "signin" | "failed" };

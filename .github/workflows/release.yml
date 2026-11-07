@@ -1,0 +1,100 @@
+name: Release
+
+# Every push to main is what Netlify deploys, so each one gets a GitHub
+# release, versioned with semver from the labels of the pull requests it
+# brings since the last release. While the site is still settling it stays
+# on 0.x, where semver lets a minor version break things:
+#
+#   - any PR labelled `breaking` or `enhancement` -> minor (v0.4.2 -> v0.5.0)
+#   - else                                         -> patch (v0.4.2 -> v0.4.3)
+#
+# From 1.0 on, `breaking` bumps the major and `enhancement` the minor. 1.0
+# itself is a decision, not a label: run this workflow by hand with
+# `version: v1.0.0`. The first release, with no tag before it, is v0.1.0. The
+# notes list those pull requests, grouped by label as .github/release.yml says.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release exactly this version (e.g. v1.0.0) instead of working it out from labels"
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag and publish a release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Work out the version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASKED: ${{ inputs.version }}
+        run: |
+          if [ -n "$ASKED" ]; then
+            if ! [[ "$ASKED" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::version must look like v1.0.0, not $ASKED"
+              exit 1
+            fi
+            echo "tag=$ASKED" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+          if [ -z "$last" ]; then
+            echo "tag=v0.1.0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Every PR merged since the last release, into develop or main.
+          since=$(git log -1 --format=%cI "$last")
+          labels=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 500 \
+            --search "merged:>$since" --json labels --jq '[.[].labels[].name] | unique | join(" ")')
+          echo "Labels since $last: ${labels:-none}"
+
+          IFS=. read -r major minor patch <<< "${last#v}"
+          if [ "$major" -eq 0 ]; then
+            case " $labels " in
+              *" breaking "* | *" enhancement "*) minor=$((minor + 1)); patch=0 ;;
+              *)                                  patch=$((patch + 1)) ;;
+            esac
+          else
+            case " $labels " in
+              *" breaking "*)    major=$((major + 1)); minor=0; patch=0 ;;
+              *" enhancement "*) minor=$((minor + 1)); patch=0 ;;
+              *)                 patch=$((patch + 1)) ;;
+            esac
+          fi
+          echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists; nothing to release."
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            --latest

@@ -87,6 +87,33 @@ export default async function CommunityPage() {
           </div>
         </header>
 
+        {/* The way in, first: what the group is for and its rules follow. */}
+        <section className="ab-cta ab-cta-top tone-wa" aria-labelledby="community-cta-title">
+          <h2 id="community-cta-title">{tx(locale, "Masuk aja dulu.", "Come on in.")}</h2>
+          <p>
+            {tx(
+              locale,
+              "Gratis, terbuka buat siapa saja, dan nggak perlu akun di situs ini. Kenalin diri dan ceritain lagi ngerjain apa.",
+              "Free, open to anyone, and no account here needed. Say hello and tell us what you are working on.",
+            )}
+          </p>
+          <div className="ab-cta-actions">
+            {waCommunityUrl ? (
+              <WaJoinLink className="ab-button ab-button-primary" href={waCommunityUrl}>
+                {tx(locale, "Gabung grup WhatsApp", "Join the WhatsApp group")} <span aria-hidden="true">↗</span>
+              </WaJoinLink>
+            ) : null}
+            <a
+              className="ab-button"
+              href={waAdminUrl(`Halo Admin SWE Growth, saya mau tanya soal komunitas ${site.name}.`)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {tx(locale, "Tanya admin dulu", "Ask the admin first")}
+            </a>
+          </div>
+        </section>
+
         <section className="ab-section" aria-labelledby="activities-title">
           <h2 id="activities-title">{tx(locale, "Di grup ngapain aja", "What happens in the group")}</h2>
           <ul className="ab-cards">
@@ -113,33 +140,6 @@ export default async function CommunityPage() {
             ))}
           </ol>
         </section>
-
-        <section className="ab-cta tone-wa" aria-labelledby="community-cta-title">
-          <h2 id="community-cta-title">{tx(locale, "Masuk aja dulu.", "Come on in.")}</h2>
-          <p>
-            {tx(
-              locale,
-              "Gratis, terbuka buat siapa saja, dan nggak perlu akun di situs ini. Kenalin diri dan ceritain lagi ngerjain apa.",
-              "Free, open to anyone, and no account here needed. Say hello and tell us what you are working on.",
-            )}
-          </p>
-          <div className="ab-cta-actions">
-            {waCommunityUrl ? (
-              <WaJoinLink className="ab-button ab-button-primary" href={waCommunityUrl}>
-                {tx(locale, "Gabung grup WhatsApp", "Join the WhatsApp group")} <span aria-hidden="true">↗</span>
-              </WaJoinLink>
-            ) : null}
-            <a
-              className="ab-button"
-              href={waAdminUrl(`Halo Admin SWE Growth, saya mau tanya soal komunitas ${site.name}.`)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {tx(locale, "Tanya admin dulu", "Ask the admin first")}
-            </a>
-          </div>
-        </section>
-
       </main>
 
       <SiteFooter />

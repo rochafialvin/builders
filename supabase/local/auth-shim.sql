@@ -32,6 +32,19 @@ create table if not exists auth.users (
   created_at          timestamptz not null default now()
 );
 
+-- The accounts a user signs in with: one row per provider, as GoTrue keeps
+-- them. 20261103000000 reads the GitHub one to know a member's verified handle.
+create table if not exists auth.identities (
+  id            uuid        primary key default gen_random_uuid(),
+  provider_id   text        not null,
+  user_id       uuid        not null references auth.users (id) on delete cascade,
+  identity_data jsonb       not null default '{}'::jsonb,
+  provider      text        not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (provider_id, provider)
+);
+
 -- Supabase reads the caller's identity out of the request's JWT claims, which
 -- PostgREST puts on the connection as a setting. Same contract here.
 create or replace function auth.uid()

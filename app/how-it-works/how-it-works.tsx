@@ -7,6 +7,17 @@ import { tx, type Locale } from "../lib/locale";
 import { prTierLabel, type PRTier } from "../lib/directory";
 import { isOss, site } from "../lib/site";
 
+/** The leaderboard's signs, as /how-it-works#leaderboard explains them: [sign, name id, name en, body id, body en]. */
+const LEADERBOARD_SIGNS: [string, string, string, string, string][] = [
+  ["📅", "Minggu terisi", "Weeks filled", "Minggu yang ada PR-nya, dari minggu yang sudah berjalan. 4/4 berarti nggak pernah absen.", "Weeks with a PR, of the weeks so far. 4/4 means not a week missed."],
+  ["🔥", "Streak", "Streak", "Minggu berturut-turut ada PR, sampai minggu ini. Dipakai juga untuk memecah skor yang sama.", "Weeks in a row with a PR, up to this one. It also breaks ties between equal scores."],
+  ["▮", "Bar", "Bar", "Satu kotak per minggu, yang terakhir minggu ini. Berwarna kalau ada PR, pudar kalau belum tiba.", "One block a week, this week last. Coloured when it had a PR, faint when still to come."],
+  ["⇄", "Kontribusi atau repo sendiri", "Contributions or own repos", "Kontribusi = PR ke repo orang lain. Repo sendiri = repo milikmu atau org tempat kamu jadi member; dihitung terpisah.", "Contributions are PRs to other people's repos. Own repos are yours or an org you belong to, counted apart."],
+  ["✓", "Semua PR atau merged saja", "Every PR or merged only", "Semua PR = PR yang dibuka minggu itu, direview atau sudah di-merge. Merged saja = yang dibuka minggu itu dan sudah di-merge.", "Every PR is one opened that week, in review or merged. Merged only counts those opened that week and merged since."],
+  ["🇮🇩", "Lokal atau global", "Local or global", "Lokal = proyek member komunitas atau repo dengan maintainer Indonesia; global = sisanya.", "Local is a community member's project or a repo with Indonesian maintainers; global is the rest."],
+  ["🌱", "Milestone", "Milestones", "🌱 4 minggu, 🔥 8 minggu, 🏆 satu musim penuh. Bisa diraih siapa pun, nggak perlu mengalahkan siapa-siapa.", "🌱 4 weeks, 🔥 8 weeks, 🏆 the whole season. Anybody can reach them; nobody has to be beaten."],
+];
+
 export async function howItWorksMetadata(track: Track): Promise<Metadata> {
   const locale = await currentLocale();
   const title =
@@ -305,6 +316,30 @@ export async function HowItWorks({ track }: { track: Track }) {
                   <p>{tx(locale, "Suka sama repo-nya? Tombol Star membuka repo itu di GitHub, tempat kamu bisa kasih bintang.", "Like a repo? The Star button opens it on GitHub, where you can star it.")}</p>
                 </div>
               </li>
+            </ul>
+          </section>
+        ) : null}
+
+        {track === "github" ? (
+          <section className="ab-section" id="leaderboard" aria-labelledby="leaderboard-title">
+            <h2 id="leaderboard-title">{tx(locale, "Cara baca leaderboard", "Reading the leaderboard")}</h2>
+            <p className="ab-lead">
+              {tx(
+                locale,
+                "1 minggu 1 PR. Yang dihitung rutinnya, bukan banyaknya. Satu musim = satu kuartal, minggunya mulai Senin (WIB).",
+                "One PR a week. It counts keeping at it, not volume. A season is a quarter, with weeks starting Monday (WIB).",
+              )}
+            </p>
+            <ul className="ab-list">
+              {LEADERBOARD_SIGNS.map(([sign, nameId, nameEn, bodyId, bodyEn]) => (
+                <li key={nameEn}>
+                  <span className="ab-sign" aria-hidden="true">{sign}</span>
+                  <div>
+                    <strong>{tx(locale, nameId, nameEn)}</strong>
+                    <p>{tx(locale, bodyId, bodyEn)}</p>
+                  </div>
+                </li>
+              ))}
             </ul>
           </section>
         ) : null}

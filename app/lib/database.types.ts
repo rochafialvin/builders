@@ -77,7 +77,12 @@ export type ProfileRow = {
   availability_status: string;
   website: string;
   public_email: string;
+  /** The linked GitHub account's URL, written only from auth.identities — 20261103000000_linked_github.sql. */
   github: string;
+  /** GitHub's numeric id of the linked account; null when none is linked. */
+  github_id: number | null;
+  /** A handle typed before accounts had to be linked: shown to its owner as what to link, trusted by nothing. */
+  github_typed: string;
   linkedin: string;
   x_url: string;
   resume_url: string;
@@ -86,6 +91,15 @@ export type ProfileRow = {
   /** Agreed to their GitHub activity being shown on /activity; off until they turn it on. */
   github_activity_shown: boolean;
   created_at: string;
+  /** When the username last changed, for the cooldown — 20261102000000_custom_username.sql. Null while still system-assigned. */
+  username_changed_at: string | null;
+};
+
+/** A former username, kept so old /u/<name> links resolve — 20261102000000_custom_username.sql. */
+export type UsernameHistoryRow = {
+  username: string;
+  user_id: string;
+  changed_at: string;
 };
 
 export type EventRow = {
@@ -299,7 +313,15 @@ export type Database = {
       profiles: {
         Row: ProfileRow;
         Insert: Partial<ProfileRow> & { id: string; username: string; name: string };
-        Update: Partial<Omit<ProfileRow, "id" | "created_at">>;
+        // username moves only through change_username(); created_at and
+        // username_changed_at are system-kept — 20261102000000_custom_username.sql.
+        Update: Partial<Omit<ProfileRow, "id" | "created_at" | "username" | "username_changed_at">>;
+      };
+      username_history: {
+        Row: UsernameHistoryRow;
+        // Written only by change_username(); the app reads it for the redirect.
+        Insert: never;
+        Update: never;
       };
       projects: {
         Row: ProjectRow;
@@ -437,6 +459,7 @@ export type Database = {
       };
       decide_proposal: { Args: { proposal_id: number; accept: boolean }; Returns: undefined };
       set_now: { Args: { project: number; line: string }; Returns: undefined };
+      change_username: { Args: { new_name: string }; Returns: string };
     };
     Enums: Record<never, never>;
     CompositeTypes: Record<never, never>;

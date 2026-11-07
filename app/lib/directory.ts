@@ -149,6 +149,14 @@ export function sharedBy(
 export type DirectoryLink = { kind: "github" | "website"; href: string; label: string };
 
 /**
+ * A listed repository's page here: `/directory/owner/name`, in lower case like
+ * every repo key on the site, so one repo has one address however it is typed.
+ */
+export function repoPagePath(repo: string): string {
+  return `/directory/${repo.toLowerCase()}`;
+}
+
+/**
  * How far a repository is from merging somebody's first pull request, measured
  * on GitHub rather than taken from a checkbox — a box ticked five years ago on
  * a repository nobody has touched since is not an invitation.

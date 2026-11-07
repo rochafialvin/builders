@@ -6,10 +6,11 @@
  * Called two ways, both from the database (see
  * 20261024000000_github_activity.sql):
  *
- *   - by pg_cron every half hour, with an empty body: every member who has
- *     agreed to be shown (profiles.github_activity_shown) and has a GitHub
- *     account on their profile;
- *   - by a trigger when somebody changes either of those, with
+ *   - by pg_cron every six hours, with an empty body: every member who has
+ *     agreed to be shown (profiles.github_activity_shown) and has linked a
+ *     GitHub account (profiles.github_id, see 20261103000000_linked_github.sql);
+ *   - by a trigger when somebody changes either of those, or shows a hidden
+ *     repository again (20261105000000_github_hidden_repos.sql), with
  *     `{ "users": ["<uuid>"] }`: just them, now.
  *
  * Nobody else is asked about at all: what has not been agreed to is not
@@ -26,16 +27,20 @@
  */
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.51.0";
 import {
+  authorQuestions,
   BATCH_SIZE,
+  buildAuthorQuery,
   buildQuery,
   buildSearchQuery,
   chunk,
   contributionsFrom,
   githubHandle,
+  mainAuthorsOf,
   parseResponse,
   SUGGESTION_PREFIX,
   suggestionsFrom,
   type ContributionRow,
+  type GraphQLBody,
   type Member,
   type MemberActivity,
 } from "./activity.ts";
@@ -68,15 +73,32 @@ async function refresh(asked: string[] | null): Promise<void> {
   const token = Deno.env.get("GITHUB_TOKEN");
   if (!token) throw new Error("GITHUB_TOKEN is not set.");
 
-  let request = supabase.from("profiles").select("id, github").eq("github_activity_shown", true).neq("github", "");
+  // Only accounts linked through OAuth (github_id set): a handle somebody
+  // typed is not gathered, and the clean-up below clears what was.
+  let request = supabase
+    .from("profiles")
+    .select("id, github, github_id")
+    .eq("github_activity_shown", true)
+    .neq("github", "")
+    .not("github_id", "is", null);
   if (asked) request = request.in("id", asked);
   const { data, error } = await request;
   if (error) throw new Error(error.message);
 
+  const ids = (data ?? []).map((row) => row.id);
+  const { data: hiddenRows, error: hiddenError } = ids.length > 0
+    ? await supabase.from("github_hidden_repos").select("user_id, pattern").in("user_id", ids)
+    : { data: [], error: null };
+  // Without the list, nothing is fetched: a hidden repository must not come back.
+  if (hiddenError) throw new Error(hiddenError.message);
+  const hidden = new Map<string, string[]>();
+  for (const row of hiddenRows ?? []) hidden.set(row.user_id, [...(hidden.get(row.user_id) ?? []), row.pattern]);
+
   const members: Member[] = [];
   for (const row of data ?? []) {
     const handle = githubHandle(String(row.github ?? ""));
-    if (handle) members.push({ id: row.id, handle });
+    const githubId = Number(row.github_id);
+    if (handle && Number.isSafeInteger(githubId)) members.push({ id: row.id, handle, githubId, hidden: hidden.get(row.id) ?? [] });
   }
 
   // Somebody asked about who took their yes back, or has no GitHub account
@@ -96,6 +118,7 @@ async function refresh(asked: string[] | null): Promise<void> {
     }
     const body = await response.json();
     let activities = parseResponse(batch, body, now);
+    let narrowed: Parameters<typeof parseResponse>[3];
 
     // Somebody whose own repositories filled the search: ask again without
     // them. If that fails, the first answer stands.
@@ -104,9 +127,29 @@ async function refresh(asked: string[] | null): Promise<void> {
     );
     if (narrow.length > 0) {
       const again = await askGitHub(token, buildSearchQuery(narrow, now));
-      if (again.ok) activities = parseResponse(batch, body, now, await again.json());
+      if (again.ok) narrowed = await again.json();
       else console.error(`[refresh-github-activity] GitHub answered ${again.status} to the narrowed search.`);
+      activities = parseResponse(batch, body, now, narrowed);
     }
+
+    // Who wrote the repositories they sent pull requests to: one written
+    // mostly by the member is theirs, not a contribution. If GitHub does not
+    // answer, the line drawn so far stands.
+    const mainAuthors = new Map<string, string>();
+    for (const repos of authorQuestions(activities)) {
+      const authors = await askGitHub(token, buildAuthorQuery(repos));
+      if (!authors.ok) {
+        console.error(`[refresh-github-activity] GitHub answered ${authors.status} to the authors question.`);
+        continue;
+      }
+      const answer: GraphQLBody = await authors.json();
+      // A repository GitHub would not show — an organisation can keep tokens
+      // out — stays a contribution; say which, so it can be looked into.
+      const unread = repos.filter((_, index) => !answer.data?.[`a${index}`]);
+      if (unread.length > 0) console.error(`[refresh-github-activity] No commits read for ${unread.join(", ")}.`);
+      for (const [repo, login] of mainAuthorsOf(repos, answer)) mainAuthors.set(repo, login);
+    }
+    if (mainAuthors.size > 0) activities = parseResponse(batch, body, now, narrowed, mainAuthors);
 
     for (const activity of activities) {
       await store(supabase, activity);
@@ -158,6 +201,14 @@ async function store(supabase: SupabaseClient, activity: MemberActivity): Promis
  * forward to the catalogue as pending. See 20261027000100_github_contributions.sql.
  */
 async function keepContributions(supabase: SupabaseClient, activity: Extract<MemberActivity, { found: true }>): Promise<void> {
+  // A repository now known to be their own was never a contribution: what was
+  // kept for it before goes.
+  const ownRepos = [...new Set(activity.pullRequests.filter((pr) => pr.own).map((pr) => pr.repo))];
+  if (ownRepos.length > 0) {
+    const { error } = await supabase.from("github_contributions").delete().eq("user_id", activity.member.id).in("repo", ownRepos);
+    if (error) throw new Error(error.message);
+  }
+
   // Their own repositories' pull requests are their own work, not contributions.
   const merged = activity.pullRequests.filter((pr) => pr.state === "merged" && !pr.own);
   if (merged.length === 0) return;

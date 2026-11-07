@@ -25,12 +25,12 @@ import { safeNextPath } from "./urls";
  * from the request headers. It relativizes the header again when the host
  * matches the request, which is the same trick by a longer route.
  */
-export function sameOriginRedirect(path: string, base?: string): NextResponse {
+export function sameOriginRedirect(path: string, base?: string, status: 301 | 307 = 307): NextResponse {
   // Belt and braces: a `Location` that starts with `//` is another origin, and
   // these paths are built from `?next=` values.
   const target = path.startsWith("/") && !path.startsWith("//") ? path : safeNextPath(path);
   return new NextResponse(null, {
-    status: 307,
+    status,
     headers: { Location: base ? new URL(target, base).toString() : target },
   });
 }

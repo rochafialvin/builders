@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { notFound, permanentRedirect } from "next/navigation";
 import Link from "@/app/components/responsive-link";
 import { setActivityVisibility } from "../../actions";
 import { SiteFooter, SiteHeader } from "../../components/shell";
@@ -7,13 +8,18 @@ import { ActivityList, initials, monthYear } from "../../components/pieces";
 import { LinkIcon, type LinkIconKind } from "../../components/link-icons";
 import { PageScrollTop } from "../../components/project-scroll-top";
 import { ShareProfileButton } from "../../components/share-profile-button";
-import { OssRecordEmpty, OssRecordList } from "../../components/oss-record";
+import { OssRecordEmpty, OssRecordList, type RepoBrief } from "../../components/oss-record";
+import { GitHubReadme, GitHubSummary } from "../../components/github-summary";
+import { SeasonRecord } from "../../components/season-record";
 import { SubmitButton } from "../../components/submit-button";
 import {
+  getGitHubProfile,
+  currentUsernameForFormer,
   getPerson,
   getPersonStats,
   getPortfolio,
   listOssContributionsOf,
+  listOssMembers,
   listPeople,
   listPersonActivity,
   type Person,
@@ -24,6 +30,7 @@ import { domainOf, projectBlurb } from "../../lib/brief";
 import { nextSteps, remainingSteps } from "../../lib/next-steps";
 import { githubHandle, type OssContribution } from "../../lib/oss";
 import { readPublicly } from "../../lib/public-read";
+import { readDirectory } from "../../lib/directory-read";
 import { stageLabel } from "../../lib/stages";
 import { currentViewer } from "../../lib/session";
 import { currentLocale } from "../../lib/locale-server";
@@ -90,7 +97,20 @@ export default async function ProfilePage({
   const { username } = await params;
   const query = (await searchParams) ?? {};
   const [person, viewer, locale] = await Promise.all([getPerson(username), currentViewer(), currentLocale()]);
-  if (!person) notFound();
+  if (!person) {
+    // A link to a name its owner has since changed still finds them.
+    const current = await currentUsernameForFormer(username);
+    if (current && current !== username) {
+      // The query goes along: a shared link to a longer trail stays one.
+      const search = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) search.append(key, item);
+      }
+      const rest = search.toString();
+      permanentRedirect(`/u/${current}${rest ? `?${rest}` : ""}`);
+    }
+    notFound();
+  }
 
   // "Muat lebih lama" grows the limit instead of paging cursors: the list is
   // one request either way, and the URL stays shareable.
@@ -110,6 +130,42 @@ export default async function ProfilePage({
     readPublicly("open source record on a profile", () => listOssContributionsOf(person.id), []),
   ]);
   const records = recordsResult.value;
+  // The open source site's summary straight from GitHub: only for an account
+  // linked through OAuth, and only when its owner said yes to showing their
+  // GitHub activity — the same consent /activity runs on.
+  const gitHubShown = isOss && Boolean(person.github) && person.githubActivityShown;
+  const gh = gitHubShown
+    ? (await readPublicly("GitHub summary on a profile", () => getGitHubProfile(githubHandle(person.github), person.githubId ?? null), null)).value
+    : null;
+  // What GitHub cannot say about their repos: which are listed here, what
+  // the directory says of them, and who else from the community got merged there.
+  const [directory, members] = isOss
+    ? await Promise.all([
+        readPublicly("the directory on a profile", async () => (await readDirectory(locale)).entries, []),
+        gh ? readPublicly("community members on a profile", listOssMembers, []) : { value: [] },
+      ])
+    : [{ value: [] }, { value: [] }];
+  const listedRepos = directory.value.filter((entry) => entry.track === "github" && entry.repo);
+  const briefs: Record<string, RepoBrief> = {
+    ...Object.fromEntries(
+      (gh?.pinned ?? []).map((pin) => [
+        pin.repo.toLowerCase(),
+        { description: pin.description, listed: false, prTier: null, language: pin.language?.name ?? "", languageColor: pin.language?.color, stars: pin.stars },
+      ]),
+    ),
+    ...Object.fromEntries(
+      listedRepos.map((entry) => [
+        entry.repo as string,
+        { description: entry.description, listed: true, prTier: entry.prTier, language: entry.language, stars: entry.stars ?? 0 },
+      ]),
+    ),
+  };
+  const alongside = Object.fromEntries(
+    (gh?.merged.repos ?? []).map(({ repo }) => [
+      repo.toLowerCase(),
+      members.value.filter((member) => member.username !== person.username && member.handle && member.contributions.some((each) => each.repo === repo.toLowerCase())),
+    ]),
+  );
   const hasOlder = activity.length > limit;
   const trail = activity.slice(0, limit);
   const handle = githubHandle(person.github);
@@ -136,6 +192,13 @@ export default async function ProfilePage({
     const search = params.toString();
     return `/u/${person.username}${search ? `?${search}` : ""}#activity-heading`;
   };
+
+  const season =
+    isOss && handle && person.githubActivityShown ? (
+      <Suspense fallback={null}>
+        <SeasonRecord personId={person.id} self={isSelf} locale={locale} />
+      </Suspense>
+    ) : null;
 
   return (
     <>
@@ -173,7 +236,14 @@ export default async function ProfilePage({
 
         <ul className="pf-stats" aria-label={tx(locale, "Ringkasan", "Summary")}>
           {/* Repos on the open source site, products and the work on them on builders. */}
-          {isOss ? (
+          {isOss && gh ? (
+            <>
+              <Stat value={gh.merged.count} label={tx(locale, "PR di-merge", "PRs merged")} />
+              <Stat value={gh.open.length} label={tx(locale, "PR berjalan", "open PRs")} />
+              <Stat value={gh.reposContributedTo} label={tx(locale, "repo dikontribusi", "repos contributed to")} />
+              <Stat value={gh.year.contributions.toLocaleString(locale === "id" ? "id-ID" : "en-US")} label={tx(locale, "kontribusi tahun ini", "contributions this year")} />
+            </>
+          ) : isOss ? (
             <>
               <Stat value={contributed} label={tx(locale, "repo dikontribusi", "repos contributed to")} />
               <Stat value={maintained} label={tx(locale, "repo di-maintain", "repos maintained")} />
@@ -184,27 +254,38 @@ export default async function ProfilePage({
               <Stat value={contributing.length} label={tx(locale, "produk dibantu", "products helped")} />
             </>
           )}
-          {stats.since ? <Stat value={monthYear(stats.since, locale)} label={tx(locale, "aktif sejak", "active since")} /> : null}
+          {stats.since && !gh ? <Stat value={monthYear(stats.since, locale)} label={tx(locale, "aktif sejak", "active since")} /> : null}
         </ul>
 
         {isSelf ? <SelfNote person={person} owned={owned} locale={locale} /> : null}
 
-        <div className="pf-layout">
+        <div className={gh ? "pf-layout has-github" : "pf-layout"}>
           <div className="pf-main">
-            {/* The open source record is the open source site's; builders points there. */}
-            {isOss ? (
+            {/* The open source record is the open source site's; builders points there.
+                Their season comes under what they got merged, with the same
+                consent /activity runs on. */}
+            {isOss && gh ? <GitHubSummary profile={gh} locale={locale} afterMerged={season} listed={listedRepos.map((entry) => entry.repo as string)} alongside={alongside} /> : season}
+            {isOss && isSelf && !gitHubShown ? (
+              <p className="pf-self-note">
+                {tx(locale, "Tampilkan ringkasan GitHub-mu di sini: PR berjalan, yang sudah di-merge, dan repo yang kamu sematkan.", "Show your GitHub summary here: open PRs, merged ones, and your pinned repos.")}{" "}
+                <Link href="/account/profile#github-account">{person.github ? tx(locale, "Nyalakan", "Turn it on") : tx(locale, "Tautkan GitHub", "Link GitHub")}</Link>
+              </p>
+            ) : null}
+            {/* Repos the member listed themselves: these make the directory's
+                badges. Beside GitHub's summary only when there are some. */}
+            {isOss && (records.length > 0 || !gh) ? (
               <section className="pf-section" aria-labelledby="oss-heading">
                 <div className="pf-section-head">
-                  <h2 id="oss-heading">{tx(locale, "Kontribusi open source", "Open source contributions")}</h2>
+                  <h2 id="oss-heading">{gh ? tx(locale, "Repo yang dicatat", "Listed repos") : tx(locale, "Kontribusi open source", "Open source contributions")}</h2>
                   {isSelf ? <Link href="/account/profile#open-source">{tx(locale, "Kelola", "Manage")}</Link> : null}
                 </div>
                 {records.length > 0 ? (
-                  <OssRecordList records={sortRecords(records)} handle={handle} locale={locale} />
+                  <OssRecordList records={sortRecords(records)} handle={handle} briefs={briefs} locale={locale} />
                 ) : (
                   <OssRecordEmpty self={isSelf} locale={locale} />
                 )}
               </section>
-            ) : records.length > 0 ? (
+            ) : !isOss && records.length > 0 ? (
               <p className="pf-note">
                 <a href={ossUrl(`/u/${person.username}`)} target="_blank" rel="noreferrer">
                   {tx(locale, "Kontribusi open source-nya ada di oss.swegrowth.id", "Their open source contributions are on oss.swegrowth.id")} ↗
@@ -300,7 +381,14 @@ export default async function ProfilePage({
           </div>
 
           <aside className="pf-side">
-            {person.bio ? (
+            {/* Their GitHub profile README says who they are better than a
+                bio written for this site, and stays current on its own. */}
+            {gh && gh.readme.length > 0 ? (
+              <section className="pf-card">
+                <h2>{tx(locale, "Tentang", "About")}</h2>
+                <GitHubReadme profile={gh} locale={locale} />
+              </section>
+            ) : person.bio ? (
               <section className="pf-card">
                 <h2>{tx(locale, "Tentang", "About")}</h2>
                 <p className="pf-bio">{person.bio}</p>

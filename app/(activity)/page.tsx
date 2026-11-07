@@ -1,6 +1,6 @@
+import Image from "next/image";
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { cookies } from "next/headers";
 import Link from "@/app/components/responsive-link";
 import { SiteFooter, SiteHeader } from "../components/shell";
 import { ActivityBanner } from "../components/activity-banner";
@@ -8,15 +8,17 @@ import { ActivityView } from "../components/activity-view";
 import { ProductFeedView, type FeedProductLook } from "../components/product-feed-view";
 import { feedStats, groupProductFeed } from "../lib/product-feed";
 import { Skeleton } from "../components/skeleton";
-import { LEADERBOARD_NOTE_COOKIE, shareCard } from "../content";
+import { shareCard } from "../content";
 import { activityPath, readActivityFilters, readActivityPage } from "../lib/activity-url";
-import { listActivityReactions, listGitHubActivity, listProductFeed, listProjects } from "../lib/data";
+import { listActivityReactions, listGitHubActivity, listOwnPullRequests, listProductFeed, listProjects } from "../lib/data";
 import { summarizeReactions } from "../lib/reactions";
 import { currentViewer } from "../lib/session";
-import { activityStats, dayKey, type GitHubActivityEntry } from "../lib/github-activity";
+import { activityStats, dayKey, inScope, inWindow, ownBoards, seasonOf, type GitHubActivityEntry, type PullRequestEntry } from "../lib/github-activity";
 import { readPublicly } from "../lib/public-read";
+import { listedRepos } from "../lib/directory-read";
 import { currentLocale } from "../lib/locale-server";
 import { tx, type Locale } from "../lib/locale";
+import { githubHandle } from "../lib/oss";
 import { isOss, site } from "../lib/site";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -51,7 +53,7 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
  * familiar, while the list itself reads as a feed rather than a catalogue.
  *
  * Nobody writes these entries: the refresh-github-activity Edge Function asks
- * GitHub every half hour, for members who chose to be shown.
+ * GitHub every six hours, for members who chose to be shown.
  */
 export default async function ActivityPage({ searchParams }: { searchParams?: SearchParams }) {
   const query = searchParams ?? Promise.resolve({});
@@ -101,20 +103,66 @@ function Heading({ locale, children }: { locale: Locale; children?: React.ReactN
   return (
     <header className="dx-head ax-head">
       <div>
-        <h1>{tx(locale, "Aktivitas open source", "Open source activity")}</h1>
+        <h1>{tx(locale, "Komunitas kontributor open source", "Open source contributor community")}</h1>
         <p>
           {tx(
             locale,
-            "Kontribusi open source member, langsung dari GitHub, biar saling kelihatan dan yang lain ikut mulai. ",
-            "Members' open source contributions, straight from GitHub, so we see each other's and others start too. ",
+            "Tempat berkumpul dan berbagi untuk yang serius berkontribusi ke open source. ",
+            "A place to gather and share for people serious about contributing to open source. ",
           )}
-          <Link className="ax-head-link" href="/account/profile#github-account">
-            {tx(locale, "Tampilkan punyamu", "Show yours")}
-          </Link>
+          {/* Its own line on a laptop; on a phone it simply runs on. */}
+          <span className="ax-head-line">
+            <Link className="ax-head-link" href="/account/profile#github-account">
+              {tx(locale, "Tampilkan aktivitas GitHub-mu", "Show your GitHub activity")}
+            </Link>
+            {tx(locale, " dan saling dukung.", " and back each other up.")}
+          </span>
         </p>
+        {/* The home page is the landing page too: the community first, then
+            the directory, the way the directory's heading lays out its own.
+            Showing one's activity is a link in the sentence above. */}
+        <div className="dx-head-actions ax-head-actions">
+          {/* Who is looking decides the first step, so it streams in; until
+              then a guest's is shown, the more common case here. */}
+          <Suspense fallback={<LandingCta locale={locale} signedIn={false} />}>
+            <ViewerLandingCta locale={locale} />
+          </Suspense>
+          <Link className="ab-button" href="/directory">
+            {tx(locale, "Lihat direktori", "See the directory")} <span aria-hidden="true">→</span>
+          </Link>
+          {/* Moved here from the directory: the landing page is where the
+              community behind the site is introduced. */}
+          <p className="dx-head-powered">
+            Powered by
+            <a href="https://swegrowth.id/" target="_blank" rel="noopener noreferrer">
+              <Image src="/swegrowth-logo.png" alt="Software Engineer Growth Community" width={25} height={24} />
+            </a>
+          </p>
+        </div>
       </div>
       {children}
     </header>
+  );
+}
+
+/**
+ * The landing page's first step: a guest is asked to join the site — an
+ * account is what puts them on the activity page and the ranking; a member
+ * is pointed at the community's group, through /community and its rules.
+ */
+async function ViewerLandingCta({ locale }: { locale: Locale }) {
+  return <LandingCta locale={locale} signedIn={Boolean(await currentViewer())} />;
+}
+
+function LandingCta({ locale, signedIn }: { locale: Locale; signedIn: boolean }) {
+  return signedIn ? (
+    <Link className="primary-action" href="/community">
+      {tx(locale, "Gabung komunitas", "Join the community")}
+    </Link>
+  ) : (
+    <Link className="primary-action" href="/signin">
+      {tx(locale, `Gabung ${site.name}`, `Join ${site.name}`)}
+    </Link>
   );
 }
 
@@ -122,28 +170,33 @@ async function ActivityBody({ query, locale }: { query: SearchParams; locale: Lo
   // Waiting for the request keeps the feed in the server's first answer,
   // filtered as the address asks; from then on it filters in the browser.
   await query;
-  const [result, reactionRows, viewer, cookieStore] = await Promise.all([
+  const [result, own, reactionRows, viewer, listed] = await Promise.all([
     readPublicly<GitHubActivityEntry[]>("github activity", listGitHubActivity, []),
+    readPublicly<PullRequestEntry[]>("own pull requests", listOwnPullRequests, []),
     readPublicly("activity reactions", listActivityReactions, []),
     currentViewer(),
-    cookies(),
+    // The repos with a page here: the feed links them there rather than to GitHub.
+    listedRepos(locale),
   ]);
-  const stats = activityStats(result.value);
+  const today = dayKey(new Date(), "Asia/Jakarta");
+  // This season's contributions, the board's default, so the numbers name one period.
+  const season = seasonOf(today);
+  const stats = activityStats(inWindow(inScope(result.value, "external"), season));
 
   return (
     <>
       <Heading locale={locale}>
         <dl className="dx-head-stats">
           <div>
-            <dt>{tx(locale, "Member aktif", "Active members")}</dt>
+            <dt>{tx(locale, "Member aktif musim ini", "Active this season")}</dt>
             <dd>{stats.people}</dd>
           </div>
           <div>
-            <dt>{tx(locale, "PR merged", "PRs merged")}</dt>
+            <dt>{tx(locale, "PR merged musim ini", "PRs merged this season")}</dt>
             <dd>{stats.merged}</dd>
           </div>
           <div>
-            <dt>{tx(locale, "Repo dikontribusi", "Repos contributed to")}</dt>
+            <dt>{tx(locale, "Repo musim ini", "Repos this season")}</dt>
             <dd>{stats.repos}</dd>
           </div>
         </dl>
@@ -153,10 +206,12 @@ async function ActivityBody({ query, locale }: { query: SearchParams; locale: Lo
         entries={result.value}
         reactions={summarizeReactions(reactionRows.value, viewer?.id ?? null)}
         viewerName={viewer ? viewer.name || viewer.username : null}
-        today={dayKey(new Date(), "Asia/Jakarta")}
+        today={today}
+        ownBoards={ownBoards(own.value, today)}
         locale={locale}
         unavailable={result.unavailable}
-        leaderboardNoteClosed={cookieStore.get(LEADERBOARD_NOTE_COOKIE)?.value === "1"}
+        viewerHandle={viewer?.githubActivityShown ? githubHandle(viewer.github) || null : null}
+        listed={listed}
       />
     </>
   );

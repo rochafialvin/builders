@@ -1,14 +1,21 @@
 import { ImageResponse } from "next/og";
-import { getPerson, getPersonStats, getPortfolio } from "../../lib/data";
+import { connection } from "next/server";
+import { getPerson, getPersonStats, getPortfolio, type Person } from "../../lib/data";
 import { monthYear } from "../../components/pieces";
+import { MILESTONE_NAMES } from "../../components/week-dots";
+import { OG, OgBrand, OgFooter, OgPill, OgWeeks, ogAvatar } from "../../components/og-parts";
+import { MILESTONES, milestoneWeeks, seasonLabel } from "../../lib/github-activity";
+import { githubHandle } from "../../lib/oss";
+import { seasonStanding, type SeasonStanding } from "../../lib/season-standing";
 import { currentLocale } from "../../lib/locale-server";
-import { tx } from "../../lib/locale";
-import { site } from "../../lib/site";
+import { tx, type Locale } from "../../lib/locale";
+import { isOss, site } from "../../lib/site";
 
 /**
  * The share card for a profile — the page doing the actual promoting when a
  * portfolio link lands in a chat or a feed. Name, headline, and the numbers
- * the trail can back up.
+ * the trail can back up. On the open source site, the member's season on the
+ * leaderboard: their place, weeks, streak and milestones.
  */
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -44,6 +51,13 @@ export default async function Image({ params }: { params: Promise<{ username: st
       ),
       size,
     );
+  }
+
+  const handle = githubHandle(person.github);
+  if (isOss && handle && person.githubActivityShown) {
+    await connection();
+    const standing = await seasonStanding(person.id);
+    if (standing) return new ImageResponse(<SeasonCard person={person} handle={handle} standing={standing} locale={locale} />, size);
   }
 
   const [{ owned, contributing }, stats] = await Promise.all([
@@ -120,5 +134,96 @@ export default async function Image({ params }: { params: Promise<{ username: st
       </div>
     ),
     size,
+  );
+}
+
+/** The open source site's card: who, then their season as /leaderboard counts it. */
+function SeasonCard({ person, handle, standing, locale }: { person: Person; handle: string; standing: SeasonStanding; locale: Locale }) {
+  const { season, contributions, members, own } = standing;
+  const row = contributions?.row;
+  const weeks = row?.weeks ?? season.weeks.map(() => false);
+  const filled = row?.filled ?? 0;
+  const soFar = season.current + 1;
+  const earned = MILESTONES.filter((milestone) => filled >= milestoneWeeks(milestone, season));
+  const headline = person.headline.length > 96 ? `${person.headline.slice(0, 95).trimEnd()}…` : person.headline;
+
+  const tiles: Array<{ value: string; label: string; tone?: string }> = contributions
+    ? [
+        { value: `#${contributions.rank}`, label: tx(locale, `dari ${members} member`, `of ${members} members`), tone: OG.purple },
+        { value: `${filled}/${soFar}`, label: tx(locale, "minggu terisi", "weeks filled") },
+        { value: row && row.streak > 0 ? `🔥 ${row.streak}` : "—", label: "streak" },
+        { value: String(row?.prs ?? 0), label: tx(locale, "PR musim ini", "PRs this season") },
+      ]
+    : own
+      ? [
+          { value: `${own.row.filled}/${soFar}`, label: tx(locale, "minggu di repo sendiri", "weeks on own repos"), tone: OG.green },
+          { value: String(own.row.prs), label: tx(locale, "PR ke repo sendiri", "PRs to own repos") },
+          { value: own.row.streak > 0 ? `🔥 ${own.row.streak}` : "—", label: "streak" },
+        ]
+      : [];
+
+  return (
+    <div
+      style={{
+        background: `linear-gradient(135deg, ${OG.paper} 55%, #f5f0ff 100%)`,
+        color: OG.ink,
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        justifyContent: "space-between",
+        padding: "44px 64px",
+        width: "100%",
+      }}
+    >
+      <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}>
+        <OgBrand />
+        <OgPill text={tx(locale, `Musim ${seasonLabel(season, "id")}`, `Season ${seasonLabel(season, "en")}`)} />
+      </div>
+
+      <div style={{ alignItems: "center", display: "flex", gap: 32 }}>
+        <img src={ogAvatar(handle, 140)} width={140} height={140} style={{ border: `4px solid ${OG.paper}`, borderRadius: 70, boxShadow: "0 4px 18px rgba(31, 35, 40, .15)" }} alt="" />
+        <div style={{ display: "flex", flex: 1, flexDirection: "column", gap: 6, minWidth: 0 }}>
+          <div style={{ display: "flex", fontSize: 56, fontWeight: 800, letterSpacing: "-2px", lineHeight: 1.05 }}>{person.name.slice(0, 32)}</div>
+          <div style={{ color: OG.muted, display: "flex", fontSize: 26 }}>
+            {person.profession ? `@${handle} · ${person.profession}` : `@${handle}`}
+          </div>
+          {headline ? <div style={{ color: OG.ink, display: "flex", fontSize: 24, lineHeight: 1.35, marginTop: 4 }}>{headline}</div> : null}
+        </div>
+      </div>
+
+      <div style={{ background: OG.paper, border: `1px solid ${OG.line}`, borderRadius: 18, display: "flex", flexDirection: "column", gap: 18, padding: "22px 28px" }}>
+        {tiles.length > 0 ? (
+          <div style={{ display: "flex", gap: 44 }}>
+            {tiles.map((tile) => (
+              <div key={tile.label} style={{ display: "flex", flexDirection: "column" }}>
+                <div style={{ color: tile.tone ?? OG.ink, display: "flex", fontSize: 40, fontWeight: 800, letterSpacing: "-1px" }}>{tile.value}</div>
+                <div style={{ color: OG.muted, display: "flex", fontSize: 19 }}>{tile.label}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: "flex", fontSize: 30, fontWeight: 700 }}>
+            {tx(locale, "Siap mengisi minggu pertamanya musim ini.", "Ready to fill a first week this season.")}
+          </div>
+        )}
+        <div style={{ alignItems: "center", display: "flex", justifyContent: "space-between" }}>
+          <OgWeeks weeks={contributions || !own ? weeks : own.row.weeks} current={season.current} width={30} height={16} gap={6} />
+          <div style={{ display: "flex", fontSize: 22, gap: 14 }}>
+            {earned.length > 0
+              ? earned.map((milestone) => {
+                  const [nameId, nameEn] = MILESTONE_NAMES[milestone.icon];
+                  return (
+                    <div key={milestone.icon} style={{ background: "#dafbe1", borderRadius: 99, color: OG.green, display: "flex", fontWeight: 700, padding: "4px 14px" }}>
+                      {`${milestone.icon} ${tx(locale, nameId, nameEn)}`}
+                    </div>
+                  );
+                })
+              : null}
+          </div>
+        </div>
+      </div>
+
+      <OgFooter left={tx(locale, "1 minggu 1 PR", "One PR a week")} />
+    </div>
   );
 }

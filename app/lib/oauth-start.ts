@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { resilientSupabaseFetch } from "./resilient-fetch";
 import { sameOriginRedirect } from "./redirect";
 import { siteOrigin } from "./origin";
-import { pinnedOrigin, safeNextPath } from "./urls";
+import { gitHubLinkFailedPath, pinnedOrigin, safeNextPath } from "./urls";
 import { authCookieOptions, site } from "./site";
 
 export type OAuthProvider = "google" | "github";
@@ -40,6 +40,9 @@ const PINNED = "origin";
  */
 export async function startOAuth(request: NextRequest, provider: OAuthProvider): Promise<NextResponse> {
   const next = safeNextPath(request.nextUrl.searchParams.get("next"));
+  // GitHub only: link another GitHub account in place of the one linked. The
+  // callback then unlinks the old one.
+  const switching = provider === "github" && request.nextUrl.searchParams.get("switch") === "1";
 
   // Where the whole round trip has to happen: the verifier written below and
   // the callback that reads it back must be the same host, and this is the
@@ -50,6 +53,7 @@ export async function startOAuth(request: NextRequest, provider: OAuthProvider):
   if (pinned && pinned !== browser && request.nextUrl.searchParams.get(PINNED) !== "utama") {
     const start = new URL(`/auth/${provider}`, pinned);
     start.searchParams.set("next", next);
+    if (switching) start.searchParams.set("switch", "1");
     start.searchParams.set(PINNED, "utama");
     return NextResponse.redirect(start);
   }
@@ -86,16 +90,18 @@ export async function startOAuth(request: NextRequest, provider: OAuthProvider):
 
   const options = { redirectTo: callback.toString(), skipBrowserRedirect: true };
   let started: { url: string | null; error: unknown };
+  let linking = false;
 
   if (provider === "github") {
     const { data: viewer } = await supabase.auth.getUser();
     const linked = viewer.user?.identities?.some((identity) => identity.provider === "github");
-    if (viewer.user && !linked) {
+    if (viewer.user && (!linked || switching)) {
+      linking = true;
       const { data, error } = await supabase.auth.linkIdentity({ provider, options });
       started = { url: data.url, error };
     } else {
-      // Signed out, or GitHub already linked: signing in with it lands on the
-      // same account.
+      // Signed out, or GitHub already linked and not being switched: signing
+      // in with it lands on the same account.
       const { data, error } = await supabase.auth.signInWithOAuth({ provider, options });
       started = { url: data.url, error };
     }
@@ -106,7 +112,7 @@ export async function startOAuth(request: NextRequest, provider: OAuthProvider):
 
   if (started.error || !started.url) {
     console.error(`[builders] ${provider} OAuth could not start.`, started.error);
-    return refuse(provider, next);
+    return linking ? sameOriginRedirect(gitHubLinkFailedPath(next, "failed")) : refuse(provider, next);
   }
 
   if (!pending.some(({ name }) => name.endsWith("-code-verifier"))) {
@@ -114,7 +120,7 @@ export async function startOAuth(request: NextRequest, provider: OAuthProvider):
     // send them back to a failure. Better to stop here than to spend
     // somebody's time proving it.
     console.error(`[builders] No PKCE verifier was created; ${provider} OAuth was cancelled.`);
-    return refuse(provider, next);
+    return linking ? sameOriginRedirect(gitHubLinkFailedPath(next, "failed")) : refuse(provider, next);
   }
 
   const destination = provider === "github" ? await viaOurDomain(started.url, pinned ?? browser) : started.url;

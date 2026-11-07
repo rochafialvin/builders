@@ -59,6 +59,8 @@ export const tags = {
   oss: "oss",
   /** The approved open source catalogue the directory lists. */
   catalogue: "catalogue",
+  /** One GitHub account's summary on a profile, by lower-cased login. */
+  githubProfile: (login: string) => `github-profile:${login}`,
   /** Emoji left on pull requests on /activity. */
   reactions: "reactions",
   /** The repos and products a site admin puts first in the directory. */

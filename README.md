@@ -257,13 +257,28 @@ that forgets `security_invoker = true` would stop honouring RLS altogether.
 ```bash
 npm test        # builds, then runs everything under tests/
 npm run test:unit   # just the pure logic, no build
+npm run test:rendered   # just the rendered pages, against the last build
 ```
 
 `npm test` builds the builders site, then runs the unit tests in `tests/`:
 pure logic such as the directory's entries and URLs, the onboarding steps, the
-feeds, link metadata and the site switch. CI also builds the oss site
-(`NEXT_PUBLIC_SITE=oss npx next build`), so a change that breaks only one of
+feeds, link metadata and the site switch. It also runs
+`tests/rendered-html.test.mjs`, which starts `next start` on the build with no
+Supabase (seed mode) and checks that the public pages answer 200 with an
+`<h1>`, that a guest on a page that needs an account is sent to `/signin`, that
+an unknown member or project says it was not found, and that the redirects
+between the two sites go where they should. It
+checks whichever site `NEXT_PUBLIC_SITE` names, so CI builds the oss site
+(`NEXT_PUBLIC_SITE=oss npx next build`) and runs it again
+(`NEXT_PUBLIC_SITE=oss npm run test:rendered`). A change that breaks only one of
 the two is caught.
+
+Build in seed mode to match CI: a `.env.local` with real Supabase credentials
+is inlined into the build and the pages read that database instead, so the
+test skips itself on such a build. A
+`NEXT_PUBLIC_SITE` in `.env.local` picks the site for the build too; the test
+reads it the same way, so set the variable in the shell when you want the other
+site.
 
 The policies have their own suite, which needs a scratch PostgreSQL 16:
 

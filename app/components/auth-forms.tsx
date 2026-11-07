@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "@/app/components/responsive-link";
 import { useActionState, useState } from "react";
 import {
-  requestPasswordReset,
   signIn,
   updatePassword,
   type AuthState,
@@ -37,10 +35,8 @@ export function SignInForm({ next }: { next: string }) {
       </div>
 
       <div className="auth-field">
-        <div className="auth-label-row">
-          <label htmlFor="password">{tx("Kata sandi", "Password")}</label>
-          <Link href="/forgot-password">{tx("Lupa kata sandi?", "Forgot password?")}</Link>
-        </div>
+        {/* No "forgot password": resetting one needs email the site does not send (#211). */}
+        <label htmlFor="password">{tx("Kata sandi", "Password")}</label>
         <input
           id="password"
           name="password"
@@ -54,32 +50,6 @@ export function SignInForm({ next }: { next: string }) {
       <button className="primary-button auth-submit" type="submit" disabled={pending} aria-busy={pending || undefined}>
         <span>{pending ? tx("Mohon tunggu…", "Please wait…") : tx("Masuk dengan email", "Sign in with email")}</span>
         {!pending ? <span aria-hidden="true">→</span> : null}
-      </button>
-    </form>
-  );
-}
-
-export function ForgotPasswordForm() {
-  const [state, formAction, pending] = useActionState(requestPasswordReset, EMPTY);
-  const { tx } = useLanguage();
-
-  return (
-    <form className="auth-form" action={formAction}>
-      <Message state={state} />
-
-      <label htmlFor="email">Email</label>
-      <input
-        id="email"
-        name="email"
-        type="email"
-        autoComplete="email"
-        required
-        defaultValue={state.values.email}
-      />
-      <p className="hint">{tx("Gunakan alamat yang terhubung dengan akunmu.", "Use the address associated with your account.")}</p>
-
-      <button className="primary-button" type="submit" disabled={pending} aria-busy={pending || undefined}>
-        {pending ? tx("Mengirim…", "Sending…") : tx("Kirim tautan pengaturan ulang", "Send reset link")}
       </button>
     </form>
   );
