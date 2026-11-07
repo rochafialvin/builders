@@ -160,6 +160,14 @@ test("the board's period, and local or global, are no longer in the home page's 
   assert.equal("board" in readActivityFilters(new URLSearchParams("board=week")), false);
 });
 
+test("the product feed's kind filter round-trips through the address", () => {
+  assert.equal(readActivityFilters(new URLSearchParams("feed=update_posted")).feed, "update_posted");
+  assert.equal(readActivityFilters(new URLSearchParams("feed=nonsense")).feed, "");
+  assert.equal(activityPath({ feed: "update_posted" }), "/?feed=update_posted");
+  assert.equal(activityPath({ feed: "" }), "/");
+  assert.equal(activityPath({ feed: "seat_opened" }, 2), "/?feed=seat_opened&page=2");
+});
+
 test("the home board counts own repos or merged PRs only when asked, and all repos always", () => {
   const read = (search) => boardChoice(readActivityFilters(new URLSearchParams(search)));
   assert.deepEqual(read(""), { of: "external", count: "opened", weeks: "season", place: "all" });

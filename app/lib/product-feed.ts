@@ -49,8 +49,11 @@ export type ProductDay = {
  * The feed's entries, newest first: each product's events grouped by day.
  * A product deleted since keeps its events under the title they were
  * recorded with, and no link.
+ *
+ * With a feed kind, each entry shows only that kind's events and entries
+ * without it drop — the filter chips' choice, made here so it stays pure.
  */
-export function groupProductFeed(events: FeedEvent[], timeZone = "Asia/Jakarta"): ProductDay[] {
+export function groupProductFeed(events: FeedEvent[], timeZone = "Asia/Jakarta", feed: "" | FeedKind = ""): ProductDay[] {
   const byKey = new Map<string, ProductDay>();
   const newestFirst = [...events].filter((event) => isFeedKind(event.kind)).sort((a, b) => b.id - a.id);
 
@@ -72,7 +75,13 @@ export function groupProductFeed(events: FeedEvent[], timeZone = "Asia/Jakarta")
     }
   }
 
-  return [...byKey.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const days = [...byKey.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  if (feed === "") return days;
+  // A filtered entry keeps its day's key, so reactions stay where they were
+  // left; only its lines narrow.
+  return days
+    .map((day) => ({ ...day, events: day.events.filter((event) => event.kind === feed) }))
+    .filter((day) => day.events.length > 0);
 }
 
 /** The timeline's days, newest first, as the PR feed groups them. */
@@ -95,6 +104,29 @@ export function feedStats(events: FeedEvent[], now: Date = new Date()): { produc
     updates: recent.filter((event) => event.kind === "update_posted").length,
     rolesFilled: recent.filter((event) => event.kind === "seat_filled").length,
   };
+}
+
+/** The page asked for, clamped to the pages there are, and its slice of the entries. */
+export function feedPage(entries: ProductDay[], requested: number, size = 60): { page: number; pages: number; shown: ProductDay[] } {
+  const pages = Math.max(1, Math.ceil(entries.length / size));
+  const page = Math.min(Math.max(1, requested), pages);
+  return { page, pages, shown: entries.slice((page - 1) * size, page * size) };
+}
+
+/** The filter chips' names for the kinds, one chip per kind. */
+export function feedKindLabel(kind: FeedKind, locale: Locale): string {
+  switch (kind) {
+    case "project_created":
+      return tx(locale, "Produk baru", "New product");
+    case "project_stage_changed":
+      return tx(locale, "Pindah tahap", "Stage moved");
+    case "update_posted":
+      return tx(locale, "Kabar terbaru", "Updates");
+    case "seat_opened":
+      return tx(locale, "Peran dibuka", "Role opened");
+    case "seat_filled":
+      return tx(locale, "Peran terisi", "Role filled");
+  }
 }
 
 /** "Hari ini", "Kemarin", or the date, for a day key from groupProductFeed. */

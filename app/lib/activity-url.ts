@@ -10,6 +10,7 @@ import {
   type BoardSpan,
   type GitHubActivityFilter,
 } from "./github-activity";
+import { isFeedKind, type FeedKind } from "./product-feed";
 
 /**
  * The activity page's address — the home page, `/` — both ways: what a URL asks for, and the URL for a
@@ -18,7 +19,7 @@ import {
  * the same arrangement as directory-url.ts.
  */
 
-export type ActivityFilters = ActivityQuery & { scope: ActivityScope; weeks: BoardSpan; count: BoardCount };
+export type ActivityFilters = ActivityQuery & { scope: ActivityScope; weeks: BoardSpan; count: BoardCount; feed: FeedKind | "" };
 
 type Query = Record<string, string | string[] | undefined> | URLSearchParams;
 
@@ -46,6 +47,9 @@ export function readActivityFilters(query: Query): ActivityFilters {
   const member = read(query, "member").trim();
   const repo = read(query, "repo").trim().toLowerCase();
   const weeks = read(query, "weeks");
+  // The builders site's product feed: which kind of news its chips picked.
+  // Empty on the open source site, which never asks for it.
+  const askedFeed = read(query, "feed");
   return {
     // Contributions unless asked otherwise: what the page is for.
     scope,
@@ -57,6 +61,7 @@ export function readActivityFilters(query: Query): ActivityFilters {
     member: HANDLE.test(member) ? member : "",
     repo: REPO_KEY.test(repo) ? repo : "",
     q: read(query, "q").slice(0, 100),
+    feed: isFeedKind(askedFeed) ? askedFeed : "",
   };
 }
 
@@ -75,6 +80,7 @@ export function activityPath(filters: Partial<ActivityFilters>, page = 1): strin
   if (filters.member) params.set("member", filters.member);
   if (filters.repo) params.set("repo", filters.repo);
   if (filters.q?.trim()) params.set("q", filters.q.trim());
+  if (filters.feed) params.set("feed", filters.feed);
   if (page > 1) params.set("page", String(page));
   const search = params.toString();
   return `/${search ? `?${search}` : ""}`;

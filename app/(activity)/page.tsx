@@ -6,7 +6,7 @@ import { SiteFooter, SiteHeader } from "../components/shell";
 import { ActivityBanner } from "../components/activity-banner";
 import { ActivityView } from "../components/activity-view";
 import { ProductFeedView, type FeedProductLook } from "../components/product-feed-view";
-import { feedStats, groupProductFeed } from "../lib/product-feed";
+import { feedStats } from "../lib/product-feed";
 import { Skeleton } from "../components/skeleton";
 import { shareCard } from "../content";
 import { activityPath, readActivityFilters, readActivityPage } from "../lib/activity-url";
@@ -70,7 +70,7 @@ export default async function ActivityPage({ searchParams }: { searchParams?: Se
 
         <Suspense fallback={<ActivitySkeleton locale={locale} />}>
           {/* Pull requests on the open source site, products on builders. */}
-          {isOss ? <ActivityBody query={query} locale={locale} /> : <ProductActivityBody locale={locale} />}
+          {isOss ? <ActivityBody query={query} locale={locale} /> : <ProductActivityBody query={query} locale={locale} />}
         </Suspense>
       </main>
 
@@ -220,9 +220,12 @@ async function ActivityBody({ query, locale }: { query: SearchParams; locale: Lo
 /**
  * The builders site's feed: members' products, from the trail `events` keeps
  * (see app/lib/product-feed.ts), one card per product per day with reactions.
- * Read whole and grouped on the server; there are no filters to apply.
+ * Read whole on the server; the view groups, filters and pages in the browser.
  */
-async function ProductActivityBody({ locale }: { locale: Locale }) {
+async function ProductActivityBody({ query, locale }: { query: SearchParams; locale: Locale }) {
+  // Waiting for the request keeps the feed in the server's first answer,
+  // filtered as the address asks; from then on it filters in the browser.
+  await query;
   const [events, projects, reactionRows, viewer] = await Promise.all([
     readPublicly("product feed", () => listProductFeed(), []),
     readPublicly("products for the feed's logos", () => listProjects({ lane: "active" }), []),
@@ -255,7 +258,7 @@ async function ProductActivityBody({ locale }: { locale: Locale }) {
 
       <div className="pfeed">
         <ProductFeedView
-          entries={groupProductFeed(events.value).slice(0, 60)}
+          entries={events.value}
           looks={looks}
           reactions={summarizeReactions(reactionRows.value, viewer?.id ?? null)}
           viewerName={viewer ? viewer.name || viewer.username : null}

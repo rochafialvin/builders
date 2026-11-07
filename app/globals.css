@@ -1757,6 +1757,8 @@ form button[aria-busy="true"]::after,
   font-weight: 600; gap: 6px; padding: 5px 10px 5px 12px;
 }
 .ax-chips a span { color: var(--dx-muted); font-size: 15px; }
+/* The product feed's kind chooser: the chosen chip carries aria-current. */
+.ax-chips a[aria-current="true"] { background: var(--dx-ink); color: light-dark(#fff, #1f1f1f); }
 @media (max-width: 900px) {
   .ax-layout { grid-template-columns: minmax(0, 1fr); }
   /* The column comes apart: the board, the feed, then the repos. */
