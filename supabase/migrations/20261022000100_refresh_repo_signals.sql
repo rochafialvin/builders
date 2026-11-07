@@ -12,8 +12,9 @@
 -- safe to apply first; nothing a member does can fail because of it.
 
 -- pg_net and pg_cron exist only on Supabase. On a plain PostgreSQL (the
--- README test run and CI) they are absent, so the setup is guarded and
--- skipped there; where they exist this does exactly what it did before.
+-- README test run and CI) they are absent, so creating them is skipped there,
+-- and supabase/local/auth-shim.sql stands in for cron.schedule. Where they
+-- exist this does exactly what it did before.
 do $guard$
 begin
   if exists (select 1 from pg_available_extensions where name = 'pg_net') then
@@ -124,10 +125,4 @@ create trigger refresh_repo_signals
 
 -- Every six hours, at an odd minute so it does not land with everybody else's
 -- jobs on the hour. The function itself skips rows checked in the last six.
-do $guard$
-begin
-  if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    perform cron.schedule('refresh-repo-signals', '17 */6 * * *', $$ select private.request_repo_refresh(null) $$);
-  end if;
-end
-$guard$;
+select cron.schedule('refresh-repo-signals', '17 */6 * * *', $$ select private.request_repo_refresh(null) $$);

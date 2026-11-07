@@ -148,10 +148,4 @@ create trigger refresh_github_activity
 
 -- Every six hours, half an hour after refresh-repo-signals so the two do not
 -- share the GitHub token's rate limit in the same minute.
-do $guard$
-begin
-  if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    perform cron.schedule('refresh-github-activity', '47 */6 * * *', $$ select private.request_github_activity_refresh(null) $$);
-  end if;
-end
-$guard$;
+select cron.schedule('refresh-github-activity', '47 */6 * * *', $$ select private.request_github_activity_refresh(null) $$);

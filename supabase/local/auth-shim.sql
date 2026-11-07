@@ -11,6 +11,19 @@ create schema if not exists auth;
 -- migrations stop dead without this line.
 create schema if not exists extensions;
 
+-- pg_cron exists only on Supabase, and 20261022000100 skips creating it where
+-- it is missing. The migrations still schedule jobs with cron.schedule, so a
+-- stand-in with the same signature lets them run; it schedules nothing.
+do $$
+begin
+  if not exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create schema if not exists cron;
+    create or replace function cron.schedule(job_name text, schedule text, command text)
+    returns bigint language sql as 'select null::bigint';
+  end if;
+end
+$$;
+
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then
