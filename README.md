@@ -284,12 +284,14 @@ The policies have their own suite, which needs a scratch PostgreSQL 16:
 
 ```bash
 createdb builders_test
-psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f supabase/local/auth-shim.sql
-for f in supabase/migrations/*.sql; do
-  echo "== $f"
-  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f" || exit 1
-done
-psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f supabase/tests/policies.sql
+( set -e  # stop at the first failure without closing your shell
+  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f supabase/local/auth-shim.sql
+  for f in supabase/migrations/*.sql; do
+    echo "== $f"
+    psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
+  done
+  psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f supabase/tests/policies.sql
+)
 ```
 
 `supabase/local/auth-shim.sql` is the smallest slice of Supabase's `auth` schema
